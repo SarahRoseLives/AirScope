@@ -81,6 +81,7 @@ public:
     // Voice squelch threshold (dBFS); very low = always open.
     void setSquelchDb(double d);
     void setVolume(float v);
+    uint64_t voiceSamples();
 
     // Audio output device selection (index 0 = system default).
     std::vector<std::string> audioDevices() { return audio_.listDevices(); }
@@ -89,6 +90,7 @@ public:
     void setVoiceMute(bool m) { audio_.setMuted(m); }
     bool voiceMuted() const { return audio_.muted(); }
     float audioLevel() { return audio_.level(); }
+    void  maintainAudio() { audio_.maintain(); }
 
 private:
     struct SubBand

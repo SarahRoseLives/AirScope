@@ -138,6 +138,11 @@ void Decoder::setVolume(float v)
     if (am_) am_->setVolume(v);
 }
 
+uint64_t Decoder::voiceSamples() const
+{
+    return am_ ? am_->samplesOut() : 0;
+}
+
 void Decoder::onAcarsMsg(const AcarsMsg& a)
 {
     DecodedMessage m;

@@ -53,6 +53,7 @@ public:
     const std::string& recordingPath() const;
     void setSquelchDb(double d);
     void setVolume(float v);
+    uint64_t voiceSamples() const;
 
 private:
     void onAcarsMsg(const AcarsMsg& m);

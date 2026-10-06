@@ -94,6 +94,7 @@ void AmVoiceDecoder::process(const float* env, int n)
         if (s < -1.0) s = -1.0;
 
         pcm_[nout++] = (int16_t)std::lround(s * 32000.0);
+        ++samplesOut_;
         if (nout >= (int)(sizeof(pcm_) / sizeof(pcm_[0])))
         {
             // Flush a full buffer mid-call.

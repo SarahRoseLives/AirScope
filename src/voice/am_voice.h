@@ -41,6 +41,7 @@ public:
 
     bool   squelchOpen() const { return sqlOpen_; }
     double signalDb() const { return sigDb_; }
+    uint64_t samplesOut() const { return samplesOut_; }
 
 private:
     void openRecord();
@@ -77,5 +78,6 @@ private:
     int    channelId_ = -1;
     double freqMHz_ = 0.0;
 
+    uint64_t samplesOut_ = 0;
     int16_t pcm_[1024];
 };

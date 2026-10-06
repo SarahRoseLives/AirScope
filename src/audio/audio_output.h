@@ -21,6 +21,10 @@ public:
     void stop();
     bool running() const;
 
+    // Called periodically from the UI thread: restarts the device if its
+    // callback has stalled (e.g. the OS suspended/moved the stream).
+    void maintain();
+
     // Playback device selection. listDevices() returns names with index 0 =
     // "Default (system)"; setDevice() picks by that index and live-restarts the
     // device if it is running.

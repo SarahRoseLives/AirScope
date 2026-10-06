@@ -1,13 +1,22 @@
 #include "audio/audio_output.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <mutex>
 #include <vector>
 
 #define MA_NO_DECODING
 #define MA_NO_GENERATION
 #include "miniaudio.h"
+
+static uint64_t nowMs()
+{
+    return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 struct AudioOutputImpl
 {
@@ -22,6 +31,10 @@ struct AudioOutputImpl
     ma_device_id id{};
     int  sampleRate = 8000;
 
+    std::atomic<uint64_t> lastCbMs{0};
+    uint64_t startMs = 0;
+    uint64_t lastRestartMs = 0;
+
     std::mutex mtx;
     std::vector<int16_t> ring;
     size_t cap = 0;
@@ -33,6 +46,16 @@ struct AudioOutputImpl
     {
         if (ctxInited)
             return true;
+        // Silent null backend for headless testing (no audio device touched).
+        const char* envNull = std::getenv("AIRSCOPE_AUDIO_NULL");
+        if (envNull && envNull[0] == '1')
+        {
+            ma_backend backend = ma_backend_null;
+            if (ma_context_init(&backend, 1, nullptr, &context) != MA_SUCCESS)
+                return false;
+            ctxInited = true;
+            return true;
+        }
         if (ma_context_init(nullptr, 0, nullptr, &context) != MA_SUCCESS)
             return false;
         ctxInited = true;
@@ -60,11 +83,14 @@ struct AudioOutputImpl
             return false;
         }
         started = true;
+        startMs = nowMs();
+        lastCbMs.store(startMs);
         return true;
     }
 
     void pullInto(int16_t* out, ma_uint32 frames)
     {
+        lastCbMs.store(nowMs());
         std::lock_guard<std::mutex> lk(mtx);
         double pwr = 0.0;
         for (ma_uint32 i = 0; i < frames; ++i)
@@ -102,7 +128,7 @@ bool AudioOutput::start(int sampleRate)
         return true;
 
     impl_->sampleRate = sampleRate;
-    impl_->cap = (size_t)sampleRate; // ~1 s buffer
+    impl_->cap = (size_t)std::max(16000, sampleRate * 2); // ~2 s buffer
     impl_->ring.assign(impl_->cap, 0);
     impl_->rd = impl_->wr = impl_->count = 0;
 
@@ -119,6 +145,31 @@ void AudioOutput::stop()
 }
 
 bool AudioOutput::running() const { return impl_->started; }
+
+void AudioOutput::maintain()
+{
+    if (!impl_->started)
+        return;
+
+    uint64_t now = nowMs();
+    uint64_t last = impl_->lastCbMs.load();
+    bool stalled = (now - last) > 2000; // no callback for 2 s
+    if (!stalled)
+        return;
+    if (now - impl_->lastRestartMs < 3000) // don't thrash
+        return;
+
+    // The device stopped pulling (OS suspended/moved the stream). Reopen it.
+    ma_device_uninit(&impl_->device);
+    impl_->started = false;
+    {
+        std::lock_guard<std::mutex> lk(impl_->mtx);
+        impl_->rd = impl_->wr = impl_->count = 0;
+    }
+    impl_->lastRestartMs = now;
+    impl_->lastCbMs.store(now);
+    impl_->openDevice();
+}
 
 std::vector<std::string> AudioOutput::listDevices()
 {
@@ -179,7 +230,11 @@ void AudioOutput::push(const int16_t* pcm, int n)
 {
     if (muted_.load() || !impl_->started || n <= 0)
         return;
-    std::lock_guard<std::mutex> lk(impl_->mtx);
+    // Never block the decode worker on the audio mutex: if the callback holds
+    // it, drop this block instead of stalling the whole decode pipeline.
+    std::unique_lock<std::mutex> lk(impl_->mtx, std::try_to_lock);
+    if (!lk.owns_lock())
+        return;
     for (int i = 0; i < n; ++i)
     {
         if (impl_->count == impl_->cap)

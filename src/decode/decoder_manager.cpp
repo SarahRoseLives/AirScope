@@ -306,6 +306,19 @@ void DecoderManager::setVolume(float v)
     }
 }
 
+uint64_t DecoderManager::voiceSamples()
+{
+    uint64_t n = 0;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& dec : sb->decoders)
+                n += dec->voiceSamples();
+    }
+    return n;
+}
+
 // Scan a directory for WAV/OGG voice recordings and populate VoiceCallLog.
 void VoiceCallLog::scanDir(const std::string& dir)
 {

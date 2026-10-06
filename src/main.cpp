@@ -246,6 +246,8 @@ int main(int, char**)
                 processFft(rp->view, app, rp->src->centerFreq(), rp->src->sampleRate());
         }
         updateRateChange(app);
+        for (auto& rp : app.rx)
+            rp->decoders.maintainAudio();
 
         if (app.logToDb != app.writeDb.enabled())
         {
