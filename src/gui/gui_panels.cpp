@@ -1141,94 +1141,6 @@ void drawFlightMap(App& app)
 void drawFlightMap(App&) {}
 #endif // _WIN32
 
-ImPlotPoint constGetter(int idx, void* data)
-{
-    const float* p = static_cast<const float*>(data);
-    return ImPlotPoint(p[idx * 2], p[idx * 2 + 1]);
-}
-
-void drawConstellation(App& app)
-{
-    ImGui::Begin((std::string(_L("Constellation")) + "###Constellation").c_str());
-
-    struct Row { Receiver* r; DecoderManager::Status s; };
-    std::vector<Row> rows;
-    for (auto& rp : app.rx)
-    {
-        if (!rp) continue;
-        for (auto& s : rp->decoders.status())
-            rows.push_back({rp.get(), s});
-    }
-
-    int chan = app.selectedDecoder;
-    Receiver* sel = nullptr;
-    double freq = 0.0;
-    int preBaud = 0;
-    for (auto& row : rows)
-        if (row.s.channelId == chan && (sel == nullptr ||
-            row.r == (app.selectedRx < (int)app.rx.size() ? app.rx[app.selectedRx].get() : nullptr)))
-        { sel = row.r; freq = row.s.freqMHz; preBaud = row.s.baud; break; }
-    if (!sel && !rows.empty()) { sel = rows.front().r; chan = rows.front().s.channelId;
-        freq = rows.front().s.freqMHz; preBaud = rows.front().s.baud; }
-
-    if (rows.empty())
-    {
-        ImGui::TextDisabled("No decoders. Ctrl+click the spectrum to add one.");
-        ImGui::End();
-        return;
-    }
-
-    char preview[128];
-    std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  @%d", chan, freq, preBaud);
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::BeginCombo("Decoder", preview))
-    {
-        for (auto& row : rows)
-        {
-            char label[64];
-            std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  @%d",
-                          row.s.channelId, row.s.freqMHz, row.s.baud);
-            if (ImGui::Selectable(label, row.s.channelId == chan && row.r == sel))
-            {
-                app.selectedDecoder = row.s.channelId;
-                chan = row.s.channelId;
-                sel = row.r;
-            }
-        }
-        ImGui::EndCombo();
-    }
-
-    int pairs = 0;
-    if (sel)
-        pairs = sel->decoders.getConstellation(chan, app.constBuf, 1024);
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d pts)", pairs);
-
-    auto nowC = std::chrono::steady_clock::now();
-    if (std::chrono::duration<double>(nowC - app.constLimTime).count() >= 1.0)
-    {
-        float m = 0.5f;
-        for (float v : app.constBuf) m = std::max(m, std::fabs(v));
-        app.constLim = m * 1.15;
-        app.constLimTime = nowC;
-    }
-    double lim = app.constLim;
-
-    if (ImPlot::BeginPlot("##const", ImVec2(-1, -1),
-                          ImPlotFlags_Equal | ImPlotFlags_NoLegend))
-    {
-        ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoTickLabels,
-                          ImPlotAxisFlags_NoTickLabels);
-        ImPlot::SetupAxisLimits(ImAxis_X1, -lim, lim, ImGuiCond_Always);
-        ImPlot::SetupAxisLimits(ImAxis_Y1, -lim, lim, ImGuiCond_Always);
-        if (pairs > 0)
-            ImPlot::PlotScatterG("IQ", constGetter, app.constBuf.data(), pairs);
-        ImPlot::EndPlot();
-    }
-
-    ImGui::End();
-}
-
 void drawVoiceCalls(App& app)
 {
     ImGui::Begin((std::string(_L("Voice Calls")) + "###Voice Calls").c_str());
@@ -1392,12 +1304,11 @@ void drawDockHost(App& app)
         ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockId, vp->WorkSize);
 
-        ImGuiID left, right, rtop, rmid, rbot, rcon, ctrl, dec;
+        ImGuiID left, right, rtop, rmid, rbot, ctrl, dec;
         ImGui::DockBuilderSplitNode(dockId, ImGuiDir_Left, 0.32f, &left, &right);
         ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.68f, &ctrl, &dec);
         ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.55f, &rtop, &rbot);
         ImGui::DockBuilderSplitNode(rtop, ImGuiDir_Up, 0.55f, &rtop, &rmid);
-        ImGui::DockBuilderSplitNode(rbot, ImGuiDir_Right, 0.34f, &rcon, &rbot);
 
         ImGui::DockBuilderDockWindow((std::string(_L("Control")) + "###Control").c_str(), ctrl);
         ImGui::DockBuilderDockWindow((std::string(_L("Decoders")) + "###Decoders").c_str(), dec);
@@ -1416,7 +1327,6 @@ void drawDockHost(App& app)
         ImGui::DockBuilderDockWindow((std::string(_L("Messages")) + "###Messages").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Aircraft")) + "###Aircraft").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Voice Calls")) + "###Voice Calls").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("Constellation")) + "###Constellation").c_str(), rcon);
         ImGui::DockBuilderFinish(dockId);
     }
 

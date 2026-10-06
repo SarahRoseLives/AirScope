@@ -280,7 +280,6 @@ int main(int, char**)
         drawAircraft(app);
         drawVoiceCalls(app);
         drawFlightMap(app);
-        drawConstellation(app);
         drawAbout(app);
 
         // Auto-mute live audio during playback, restore after.

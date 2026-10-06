@@ -27,7 +27,6 @@ void drawDecoders(App&);
 void drawMessages(App&);
 void drawAircraft(App&);
 void drawFlightMap(App&);
-void drawConstellation(App&);
 void drawVoiceCalls(App&);
 void drawAbout(App&);
 

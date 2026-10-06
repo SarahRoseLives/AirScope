@@ -352,27 +352,6 @@ std::vector<DecoderManager::Status> DecoderManager::status()
     return out;
 }
 
-int DecoderManager::getConstellation(int channelId, std::vector<float>& out, int maxPairs)
-{
-    std::vector<double> tmp((size_t)maxPairs * 2);
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->channelId() == channelId)
-                {
-                    int pairs = d->getConstellation(tmp.data(), maxPairs);
-                    out.resize((size_t)pairs * 2);
-                    for (int i = 0; i < pairs * 2; ++i)
-                        out[i] = (float)tmp[i];
-                    return pairs;
-                }
-    }
-    out.clear();
-    return 0;
-}
-
 void DecoderManager::workerLoop(Worker* w)
 {
     while (run_.load())

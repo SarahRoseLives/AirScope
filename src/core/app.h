@@ -30,9 +30,6 @@ struct App
     double placingFreqMHz = 0.0;
     int  selectedDecoder = -1;
     int  selectedRx = 0;
-    std::vector<float> constBuf;
-    double constLim = 1.0;
-    std::chrono::steady_clock::time_point constLimTime;
 
     // Recording
     bool recordVoice = false;

@@ -78,11 +78,6 @@ double Decoder::ebno() const
     return acars_ ? acars_->levelDb() : 0.0;
 }
 
-int Decoder::getConstellation(double*, int) const
-{
-    return 0;
-}
-
 uint64_t Decoder::msgCount() const
 {
     return acars_ ? acars_->msgCount() : msgCount_.load();

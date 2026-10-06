@@ -55,7 +55,6 @@ public:
     int  subbandCount();
 
     std::vector<Status> status();
-    int getConstellation(int channelId, std::vector<float>& out, int maxPairs);
     uint64_t drops() const { return drops_.load(); }
     MessageLog& log() { return log_; }
     AircraftTable& aircraftTable() { return acTable_; }

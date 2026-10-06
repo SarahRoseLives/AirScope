@@ -34,9 +34,6 @@ public:
     bool   locked() const;
     double ebno() const;
     double mse() const { return 0.0; }
-    // Copy up to maxPairs constellation points (interleaved I,Q doubles into
-    // iqOut, capacity >= 2*maxPairs). Returns the number of pairs written.
-    int    getConstellation(double* iqOut, int maxPairs) const;
 
     double freqMHz() const { return chanFreqHz_ / 1e6; }
     int    baud() const { return baud_; }
