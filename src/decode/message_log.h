@@ -236,6 +236,59 @@ public:
         ++count_;
     }
 
+    // Scanner: start tracking a live call (no file yet).
+    void beginLive(double freqMHz, int channelId, double timeSec)
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto& it : items_)
+            if (it.channelId == channelId && it.recording)
+                return; // already tracking this channel
+        VoiceCallRecord r;
+        r.timeSec = timeSec;
+        r.freqMHz = freqMHz;
+        r.channelId = channelId;
+        r.recording = true;
+        items_.push_back(r);
+        if (items_.size() > kMax)
+            items_.erase(items_.begin(), items_.begin() + (items_.size() - kMax));
+        ++count_;
+    }
+
+    // Attach a recording filename to the live call for channelId (if any).
+    bool setLiveFilename(int channelId, const std::string& name)
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto it = items_.rbegin(); it != items_.rend(); ++it)
+            if (it->channelId == channelId && it->recording)
+            {
+                const char* s = name.c_str();
+                const char* slash = std::strrchr(s, '/');
+#ifdef _WIN32
+                const char* bslash = std::strrchr(s, '\\');
+                if (bslash && bslash > slash) slash = bslash;
+#endif
+                it->filename = slash ? (slash + 1) : s;
+                return true;
+            }
+        return false;
+    }
+
+    // Scanner: finalise a live call started with beginLive().
+    void closeCall(int channelId, double nowSec)
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        for (auto it = items_.rbegin(); it != items_.rend(); ++it)
+            if (it->channelId == channelId && it->recording)
+            {
+                it->recording = false;
+                it->durationSec = nowSec - it->timeSec;
+                if (store_ && it->durationSec > 0)
+                    store_->storeVoice(it->timeSec, it->freqMHz, it->aesId,
+                                       it->icao, it->durationSec, it->filename);
+                return;
+            }
+    }
+
     // Called when a live recording ends: finds the entry by channelId and fills
     // in the duration + filename. If not found, adds a new completed record.
     void updateEnd(int channelId, double durationSec, const std::string& filename)

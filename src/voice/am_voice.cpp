@@ -158,7 +158,11 @@ void AmVoiceDecoder::openRecord()
                     std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
 
     if (vlog_)
-        vlog_->add({recStart_, 0.0, freqMHz_, channelId_, 0, "", name, true});
+    {
+        // If the scanner is already tracking this call, just attach the file.
+        if (!vlog_->setLiveFilename(channelId_, name))
+            vlog_->add({recStart_, 0.0, freqMHz_, channelId_, 0, "", name, true});
+    }
 }
 
 void AmVoiceDecoder::closeRecord()

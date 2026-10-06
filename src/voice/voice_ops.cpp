@@ -2,9 +2,15 @@
 #include "core/main_funcs.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
-#include <unordered_map>
 #include <vector>
+
+static double nowEpochSec()
+{
+    return (double)std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch()).count() / 1000.0;
+}
 
 // Retune a receiver to a new center. When `preserving` is true the current
 // decoders are re-added at their same absolute frequencies (band browsing);
@@ -265,7 +271,11 @@ void updateCallHunter(App& app)
             }
             int id = vr->decoders.addDecoder(c.freqMHz * 1e6, kVoiceBaud);
             if (id >= 0)
+            {
                 c.channelId = id;
+                // Populate the Voice Calls tab as calls are found.
+                vr->decoders.voiceCallLog().beginLive(c.freqMHz, id, nowEpochSec());
+            }
         }
     }
 
@@ -274,6 +284,7 @@ void updateCallHunter(App& app)
         auto& c = app.callHunterCands[j];
         if (c.channelId >= 0 && c.lostCount >= app.callHunterLost)
         {
+            vr->decoders.voiceCallLog().closeCall(c.channelId, nowEpochSec());
             vr->decoders.removeDecoder(c.channelId);
             app.callHunterCands.erase(app.callHunterCands.begin() + j);
             continue;
