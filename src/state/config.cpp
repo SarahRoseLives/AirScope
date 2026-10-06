@@ -27,7 +27,7 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
         buf->appendf("rx%d.gain=%g\n", (int)i, (double)r.gainDb);
         buf->appendf("rx%d.bias=%d\n", (int)i, r.biasTee ? 1 : 0);
         buf->appendf("rx%d.ppm=%g\n", (int)i, (double)r.ppm);
-        buf->appendf("rx%d.spectrum=%d\n", (int)i, r.showSpectrum ? 1 : 0);
+        buf->appendf("rx%d.aprate=%d\n", (int)i, r.apRateIdx);
         buf->appendf("rx%d.aprate=%d\n", (int)i, r.apRateIdx);
         buf->appendf("rx%d.apgainmode=%d\n", (int)i, r.apGainMode);
         buf->appendf("rx%d.apsense=%d\n", (int)i, r.apSense);
@@ -118,7 +118,6 @@ void cfgReadLine(App& app, const char* line)
         else if (!std::strcmp(field, "gain")) r.gainDb = (float)std::atof(val);
         else if (!std::strcmp(field, "bias")) r.biasTee = std::atoi(val) != 0;
         else if (!std::strcmp(field, "ppm")) r.ppm = (float)std::atof(val);
-        else if (!std::strcmp(field, "spectrum")) r.showSpectrum = std::atoi(val) != 0;
         else if (!std::strcmp(field, "aprate")) r.apRateIdx = std::atoi(val);
         else if (!std::strcmp(field, "apgainmode")) r.apGainMode = std::atoi(val);
         else if (!std::strcmp(field, "apsense")) r.apSense = std::atoi(val);

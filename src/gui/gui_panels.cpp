@@ -100,8 +100,9 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
     ImGui::PushID(idx);
     bool running = r.running();
 
-    char hdr[64];
-    std::snprintf(hdr, sizeof(hdr), "Receiver %d  -  %s", idx + 1, rxModeName(r.mode));
+    char hdr[80];
+    std::snprintf(hdr, sizeof(hdr), "Receiver %d  -  %s  [%s]",
+                  idx + 1, rxRoleName(r.role), rxModeName(r.mode));
     ImGui::Separator();
     ImGui::TextUnformatted(hdr);
 
@@ -136,7 +137,9 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
     }
     ImGui::EndDisabled();
 
-    ImGui::Checkbox("Show spectrum/waterfall", &r.showSpectrum);
+    ImGui::TextDisabled(r.wantsSpectrum()
+        ? "Spectrum/waterfall shown for this (Voice) receiver."
+        : "Headless receiver (no spectrum).");
 
     if (r.mode == kRxWav)
     {
@@ -1354,7 +1357,7 @@ void drawDockHost(App& app)
         int disp = 0;
         for (size_t i = 0; i < app.rx.size(); ++i)
         {
-            if (!app.rx[i]->showSpectrum) continue;
+            if (!app.rx[i]->wantsSpectrum()) continue;
             std::string st = std::string(_L("Spectrum")) + "###Spectrum" + std::to_string(i);
             std::string wt = std::string(_L("Waterfall")) + "###Waterfall" + std::to_string(i);
             ImGui::DockBuilderDockWindow(st.c_str(), rtop);

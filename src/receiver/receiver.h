@@ -1,7 +1,7 @@
 // A Receiver couples one SdrSource with its own spectrum view and decode
 // channel bank. AirScope runs several receivers concurrently (e.g. an Airspy
 // for voice, an RTL for 1090 ADS-B, an SDRplay for ACARS). Only receivers with
-// showSpectrum get an interactive spectrum/waterfall; ADS-B does not.
+// an interactive spectrum/waterfall; ACARS and ADS-B run headless.
 #pragma once
 
 #include "dsp/iq_ring.h"
@@ -25,6 +25,20 @@ constexpr int kRxRtl     = 0;
 constexpr int kRxWav     = 1;
 constexpr int kRxAirspy  = 2;
 constexpr int kRxSdrplay = 3;
+
+// Fixed receiver roles. The user picks which SDR fills each role.
+enum class RxRole { Voice, Acars, Adsb };
+
+inline const char* rxRoleName(RxRole r)
+{
+    switch (r)
+    {
+    case RxRole::Voice: return "Voice";
+    case RxRole::Acars: return "ACARS/DATA";
+    case RxRole::Adsb:  return "ADS-B";
+    }
+    return "?";
+}
 
 struct SpectrumView
 {
@@ -88,7 +102,11 @@ struct Receiver
     bool wavLoop = true;
 
     // ---- role ----
-    bool showSpectrum = true;   // voice/ACARS want a spectrum; ADS-B doesn't
+    RxRole role = RxRole::Voice;
+
+    // Only the Voice receiver needs an interactive spectrum/waterfall; ACARS
+    // and ADS-B run headless.
+    bool wantsSpectrum() const { return role == RxRole::Voice; }
 
     // ---- band plan ----
     bool     showBandPlan = false;

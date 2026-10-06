@@ -122,16 +122,20 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
     App app;
-    // Three concurrent receivers by default: RTL, Airspy, SDRplay.
+    // Three fixed roles; the user picks which SDR fills each one.
     app.rx.push_back(std::make_unique<Receiver>());
     app.rx.push_back(std::make_unique<Receiver>());
     app.rx.push_back(std::make_unique<Receiver>());
-    app.rx[0]->mode = kRxRtl;
-    app.rx[0]->centerMHz = 131.550;
-    app.rx[1]->mode = kRxAirspy;
-    app.rx[1]->centerMHz = 130.000;
-    app.rx[2]->mode = kRxSdrplay;
-    app.rx[2]->centerMHz = 131.725;
+    app.rx[0]->role = RxRole::Voice;
+    app.rx[0]->mode = kRxAirspy;
+    app.rx[0]->centerMHz = 130.000;
+    app.rx[1]->role = RxRole::Acars;
+    app.rx[1]->mode = kRxSdrplay;
+    app.rx[1]->centerMHz = 131.550;
+    app.rx[2]->role = RxRole::Adsb;
+    app.rx[2]->mode = kRxRtl;
+    app.rx[2]->centerMHz = 1090.0;
+    app.rx[2]->rateIdx = 9; // 2.4 MHz
 
     cfgRegisterHandler(app);
     io.IniFilename = "airscope.ini";
@@ -267,7 +271,7 @@ int main(int, char**)
         for (size_t i = 0; i < app.rx.size(); ++i)
         {
             auto& rp = app.rx[i];
-            if (!rp->showSpectrum) continue;
+            if (!rp->wantsSpectrum()) continue;
             drawSpectrum(app, *rp, (int)i, i == 1);
             drawWaterfall(app, *rp, (int)i);
         }

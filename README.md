@@ -4,19 +4,18 @@ One desktop application for VHF airband monitoring: **ACARS**, **voice**, and
 **1090 MHz ADS-B** decoded together, with aircraft locations on a live map.
 
 AirScope is built on the former InmarScope codebase (an Inmarsat satellite
-decoder). It is being retargeted to the VHF airband and ADS-B:
+decoder). It is being retargeted to the VHF airband and ADS-B. Three fixed
+receiver roles run concurrently, each filled by any supported SDR chosen by
+the user:
 
-- **Airspy #1 / #2** — flexible airband receivers. Each covers a slice of
-  118–137 MHz and can host **ACARS** (2400 bps MSK) and/or **AM voice**
-  channels. Two Airspys can tile the band; a single Airspy can do ACARS and
-  voice together when they fall in the same slice.
-- **SDRplay** (RSP1A/RSP2/RSPduo/RSPdx) via the SDRplay API — also usable as a
-  flexible voice and/or ACARS receiver in the same receiver model.
-- **RTL-SDR** — fixed **1090 MHz ADS-B / Mode-S**, decoded with algorithms ported
-  from [goadsb](https://github.com/SarahRoseLives/goadsb).
+- **Receiver 1 — Voice**: airband AM voice, with the only interactive
+  spectrum/waterfall.
+- **Receiver 2 — ACARS/DATA**: VHF ACARS (2400 bps MSK), runs headless.
+- **Receiver 3 — ADS-B**: 1090 MHz Mode-S, decoded with algorithms ported from
+  [goadsb](https://github.com/SarahRoseLives/goadsb); runs headless.
 
-Only the voice receiver needs an interactive spectrum/waterfall; ACARS can ride
-along on an Airspy, and the 1090 receiver never moves.
+Each role can use an **Airspy**, **SDRplay** (RSP1A/RSP2/RSPduo/RSPdx),
+**RTL-SDR**, or a **WAV** file.
 
 > Status: **early development.** The inherited InmarScope codebase is being
 > retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed, and
