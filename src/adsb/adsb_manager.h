@@ -36,7 +36,6 @@ public:
     void feed(const float* iq, int nComplex);
 
     void setFixBits(int n) { fixBits_ = n; adsb::setFixBits(n); }
-    void setPhaseEnhance(bool on) { phaseEnhance_ = on; }
     void setAircraftTable(AircraftTable* t) { acTable_ = t; }
     void setBeast(BeastWriter* b) { beast_ = b; }
 
@@ -52,7 +51,6 @@ private:
     double centerHz_ = 1090.0e6;
     bool   rateOk_ = false;
     int    fixBits_ = 1;
-    bool   phaseEnhance_ = false;
 
     // ---- magnitude ring (locked) ----
     static constexpr size_t kRingCap = 16 * 16384;

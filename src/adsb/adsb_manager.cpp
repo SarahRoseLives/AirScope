@@ -127,7 +127,7 @@ void AdsbManager::workerLoop()
             continue;
 
         raws.clear();
-        adsb::demodulate2400(mag.data(), readable, phaseEnhance_, raws);
+        adsb::demodulate2400(mag.data(), readable, raws);
 
         for (const auto& raw : raws)
         {

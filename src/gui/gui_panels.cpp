@@ -477,9 +477,6 @@ void drawControls(App& app)
         if (ImGui::Combo("CRC repair", &app.adsbFixBits, fixLabels, 3))
             for (auto& rp : app.rx)
                 if (rp->adsb) rp->adsb->setFixBits(app.adsbFixBits);
-        if (ImGui::Checkbox("Phase enhancement (slower, more sensitive)", &app.adsbPhaseEnhance))
-            for (auto& rp : app.rx)
-                if (rp->adsb) rp->adsb->setPhaseEnhance(app.adsbPhaseEnhance);
     }
 
     // ---- IQ Recorder ----

@@ -69,9 +69,9 @@ extern uint16_t g_magLut[256][256];
 
 // Scan magnitude samples for Mode S frames. `mag` must contain at least
 // `mlen + 32` valid samples (the demod reads a little past `mlen`, mirroring
-// dump1090's overlap handling).
-void demodulate2400(const uint16_t* mag, int mlen, bool phaseEnhance,
-                    std::vector<RawMessage>& out);
+// dump1090's overlap handling). All five sample phases are tried, as in
+// dump1090-fa, for maximum sensitivity.
+void demodulate2400(const uint16_t* mag, int mlen, std::vector<RawMessage>& out);
 
 // Decode a raw frame. For DF17/18 the extended-squitter payload is parsed and
 // CPR fields are left as raw fractions for the tracker.

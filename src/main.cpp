@@ -229,7 +229,6 @@ int main(int, char**)
             rp->adsb->setAircraftTable(&rp->decoders.aircraftTable());
             rp->adsb->setBeast(&app.beast);
             rp->adsb->setFixBits(app.adsbFixBits);
-            rp->adsb->setPhaseEnhance(app.adsbPhaseEnhance);
         }
         rp->scanDevices(); // background: never block startup on device enumeration
     }

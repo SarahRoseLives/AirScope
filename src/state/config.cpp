@@ -68,7 +68,7 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
     WS(bandPlanDir);
     WI(outFile); WS(outFilePath); WI(outUdp); WS(outUdpHost); WI(outUdpPort);
     WI(outFormat); WS(outStation); WI(outSbs); WI(outSbsPort);
-    WI(outBeast); WI(outBeastPort); WI(adsbFixBits); WI(adsbPhaseEnhance);
+    WI(outBeast); WI(outBeastPort); WI(adsbFixBits);
     WI(layoutVersion);
     WI(fontSize);
     WI(languageIdx);
@@ -173,7 +173,7 @@ void cfgReadLine(App& app, const char* line)
     RS(bandPlanDir);
     RB(outFile); RS(outFilePath); RB(outUdp); RS(outUdpHost); RI(outUdpPort);
     RI(outFormat); RS(outStation); RB(outSbs); RI(outSbsPort);
-    RB(outBeast); RI(outBeastPort); RI(adsbFixBits); RB(adsbPhaseEnhance);
+    RB(outBeast); RI(outBeastPort); RI(adsbFixBits);
     RI(layoutVersion);
     RI(fontSize);
     RI(languageIdx);

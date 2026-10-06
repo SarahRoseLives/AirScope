@@ -272,23 +272,6 @@ static int correlateCheck4(const uint16_t* m)
            absInt(corrPhase0(m + 8)) + absInt(corrPhase2(m + 10));
 }
 
-static int bestPhase(const uint16_t* m)
-{
-    int best = -1;
-    int bestval = (int)m[0] + (int)m[1] + (int)m[2] + (int)m[3] + (int)m[4] + (int)m[5];
-    int test = correlateCheck4(m);
-    if (test > bestval) { bestval = test; best = 4; }
-    test = correlateCheck0(m + 1);
-    if (test > bestval) { bestval = test; best = 5; }
-    test = correlateCheck1(m + 1);
-    if (test > bestval) { bestval = test; best = 6; }
-    test = correlateCheck2(m + 1);
-    if (test > bestval) { bestval = test; best = 7; }
-    test = correlateCheck3(m + 1);
-    if (test > bestval) { bestval = test; best = 8; }
-    return best;
-}
-
 static inline uint8_t bitv(int val, int pos) { return val > 0 ? (uint8_t)(1 << pos) : (uint8_t)0; }
 
 static inline int messageLenByType(uint8_t df)
@@ -325,8 +308,7 @@ static int messageScore(const uint8_t* msg, int bits)
     return -1;
 }
 
-void demodulate2400(const uint16_t* mag, int mlen, bool phaseEnhance,
-                    std::vector<RawMessage>& out)
+void demodulate2400(const uint16_t* mag, int mlen, std::vector<RawMessage>& out)
 {
     uint8_t msg1[kLongMsgBytes] = {0};
     uint8_t msg2[kLongMsgBytes] = {0};
@@ -392,18 +374,10 @@ void demodulate2400(const uint16_t* mag, int mlen, bool phaseEnhance,
             preamble[18] >= (uint16_t)high)
             continue;
 
-        int firstPhase, lastPhase;
-        if (phaseEnhance)
-        {
-            firstPhase = 4;
-            lastPhase = 8;
-        }
-        else
-        {
-            int ip = bestPhase(preamble + 19);
-            if (ip < 0) continue;
-            firstPhase = lastPhase = ip;
-        }
+        // Try all five sample phases (dump1090-fa behaviour): the single-phase
+        // preselection used by older dump1090/goadsb misses messages.
+        int firstPhase = 4;
+        int lastPhase = 8;
 
         uint8_t bestMsg[kLongMsgBytes] = {0};
         int bestScore = -1;

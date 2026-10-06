@@ -79,7 +79,6 @@ struct App
     bool   outBeast = false;
     int    outBeastPort = 30005;
     int    adsbFixBits = 1;        // 0 = none, 1 = 1-bit, 2 = 2-bit CRC repair
-    bool   adsbPhaseEnhance = false;
 
     int   fftSizeIdx = 2;
     float avgAlpha = 0.6f;
