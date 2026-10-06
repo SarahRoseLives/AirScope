@@ -234,19 +234,16 @@ void updateCallHunter(App& app)
         }
     }
 
-    std::unordered_map<int, bool> decoderLocked;
-    for (auto& s : vr->decoders.status())
-        decoderLocked[s.channelId] = s.locked;
-
+    // Presence is decided from the spectrum, NOT the decoder's squelch: the
+    // VHF AM squelch is usually wide open (threshold -120 dB = always open),
+    // so `locked` stays true forever and spawned decoders would never despawn.
     for (auto& c : app.callHunterCands)
     {
         if (c.matched)
             continue;
+        bool visible = false;
         if (c.channelId >= 0)
         {
-            auto it = decoderLocked.find(c.channelId);
-            if (it != decoderLocked.end() && it->second)
-                continue; // decoder is locked — signal still present
             int aboveCnt = 0, inWindow = 0;
             for (int i = 0; i < v.curN; ++i)
             {
@@ -254,11 +251,13 @@ void updateCallHunter(App& app)
                 ++inWindow;
                 if (v.avg[i] - app.callHunterBaseline[i] >= 3.0f) ++aboveCnt;
             }
-            if (inWindow > 0 && aboveCnt >= inWindow / 4)
-                continue; // still visible in the spectrum
+            visible = (inWindow > 0 && aboveCnt >= inWindow / 4);
         }
-        c.confirmCount = 0;
-        c.lostCount++;
+        if (!visible)
+        {
+            c.confirmCount = 0;
+            c.lostCount++;
+        }
     }
 
     const double kDecoderCover = 0.0025;
@@ -300,19 +299,15 @@ void updateCallHunter(App& app)
         ++j;
     }
 
-    // Scanner behaviour: keep the audio on the strongest active call. Only
-    // switch when the currently-monitored channel is no longer active, so a
-    // busy channel isn't chopped by another one.
+    // Scanner behaviour: follow the strongest call that is currently active
+    // (peak present this frame). Switch only when the monitored one isn't.
     int activeId = -1;
     double bestDb = -1e9;
     int curMon = vr->decoders.voiceMonitor();
     bool curActive = false;
     for (auto& c : app.callHunterCands)
     {
-        if (c.channelId < 0) continue;
-        auto it = decoderLocked.find(c.channelId);
-        bool lk = (it != decoderLocked.end() && it->second);
-        if (!lk) continue;
+        if (c.channelId < 0 || !c.matched) continue;
         if (c.channelId == curMon) curActive = true;
         if (c.peakDB > bestDb) { bestDb = c.peakDB; activeId = c.channelId; }
     }
