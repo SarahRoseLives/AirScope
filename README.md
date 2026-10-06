@@ -21,8 +21,8 @@ Each role can use an **Airspy**, **SDRplay** (RSP1A/RSP2/RSPduo/RSPdx),
 > retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed, and
 > the source layer runs three fixed receiver roles concurrently (Voice,
 > ACARS/DATA, ADS-B), each filled by an RTL-SDR, Airspy, SDRplay or WAV. The
-> VHF ACARS decoder (2400 bps MSK + ARINC-618 framing, ported from acarsdec) is
-> in place; AM voice and ADS-B decoders are next.
+> VHF ACARS decoder (2400 bps MSK + ARINC-618) and the VHF AM voice decoder
+> (squelch + listen/record) are in place; ADS-B is next.
 
 ## Planned features
 

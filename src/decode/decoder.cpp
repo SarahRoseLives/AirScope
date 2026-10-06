@@ -2,29 +2,33 @@
 
 #include "decode/acars/acars_decoder.h"
 #include "decode/acars_apps.h"
+#include "voice/am_voice.h"
 
 #include <cmath>
 
 // Per-channel DDC output rate / passband.
 static double chanRate(int baud)
 {
-    if (baud == kAcarsBaud)
-        return 12500.0; // acarsdec INTRATE
+    if (baud == kAcarsBaud) return 12500.0;
+    if (baud == kVoiceBaud) return 8000.0;
     return 48000.0;
 }
 
 static double chanBw(int baud)
 {
-    if (baud == kAcarsBaud)
-        return 8000.0; // ±4 kHz around the AM envelope's 1800 Hz subcarrier
+    if (baud == kAcarsBaud) return 8000.0;  // ±4 kHz for the 1800 Hz MSK subcarrier
+    if (baud == kVoiceBaud) return 6000.0;  // ±3 kHz voice
     return 6000.0;
 }
 
 Decoder::Decoder(double subRate, double subCenterHz, double chanFreqHz, int baud,
-                 int channelId, MessageLog* log, AircraftTable* acTable)
+                 int channelId, MessageLog* log, AircraftTable* acTable,
+                 AudioOutput* audioSink, VoiceCallLog* voiceLog)
     : ddc_(subRate, chanFreqHz - subCenterHz, chanRate(baud), chanBw(baud)),
       log_(log),
       acTable_(acTable),
+      audioSink_(audioSink),
+      vcallLog_(voiceLog),
       subCenterHz_(subCenterHz),
       chanFreqHz_(chanFreqHz),
       baud_(baud),
@@ -35,6 +39,12 @@ Decoder::Decoder(double subRate, double subCenterHz, double chanFreqHz, int baud
     {
         acars_ = std::make_unique<AcarsDecoder>(ddc_.outputRate());
         acars_->setCallback([this](const AcarsMsg& m) { onAcarsMsg(m); });
+    }
+    else if (baud == kVoiceBaud)
+    {
+        am_ = std::make_unique<AmVoiceDecoder>(ddc_.outputRate());
+        am_->setSink(audioSink_);
+        am_->setVoiceLog(vcallLog_, channelId_, chanFreqHz_ / 1e6);
     }
 }
 
@@ -47,40 +57,75 @@ void Decoder::process(const double* iq, int nComplex)
     if (ddcOut_.empty())
         return;
 
-    if (acars_)
+    if (!acars_ && !am_)
+        return;
+
+    int n = (int)(ddcOut_.size() / 2);
+    if ((int)env_.size() < n)
+        env_.resize(n);
+    for (int i = 0; i < n; ++i)
     {
-        int n = (int)(ddcOut_.size() / 2);
-        if ((int)env_.size() < n)
-            env_.resize(n);
-        for (int i = 0; i < n; ++i)
-        {
-            double re = ddcOut_[(size_t)i * 2];
-            double im = ddcOut_[(size_t)i * 2 + 1];
-            env_[i] = (float)std::sqrt(re * re + im * im);
-        }
-        acars_->process(env_.data(), n);
+        double re = ddcOut_[(size_t)i * 2];
+        double im = ddcOut_[(size_t)i * 2 + 1];
+        env_[i] = (float)std::sqrt(re * re + im * im);
     }
+    if (acars_)
+        acars_->process(env_.data(), n);
+    else
+        am_->process(env_.data(), n);
 }
 
 void Decoder::setFreq(double chanFreqHz)
 {
     chanFreqHz_ = chanFreqHz;
     ddc_.setOffset(chanFreqHz - subCenterHz_);
+    if (am_)
+        am_->setVoiceLog(vcallLog_, channelId_, chanFreqHz_ / 1e6);
 }
 
 bool Decoder::locked() const
 {
-    return acars_ ? acars_->locked() : false;
+    if (acars_) return acars_->locked();
+    if (am_)    return am_->squelchOpen();
+    return false;
 }
 
 double Decoder::ebno() const
 {
-    return acars_ ? acars_->levelDb() : 0.0;
+    if (acars_) return acars_->levelDb();
+    if (am_)    return am_->signalDb();
+    return 0.0;
 }
 
 uint64_t Decoder::msgCount() const
 {
     return acars_ ? acars_->msgCount() : msgCount_.load();
+}
+
+void Decoder::setMonitored(bool on)
+{
+    if (am_) am_->setMonitored(on);
+}
+
+bool Decoder::monitored() const
+{
+    return am_ ? am_->monitored() : false;
+}
+
+void Decoder::setRecording(bool on, const std::string& dir, RecordFormat fmt)
+{
+    if (am_) am_->setRecording(on, dir, fmt);
+}
+
+bool Decoder::recordingNow() const
+{
+    return am_ ? am_->recordingNow() : false;
+}
+
+const std::string& Decoder::recordingPath() const
+{
+    static const std::string empty;
+    return am_ ? am_->recordingPath() : empty;
 }
 
 void Decoder::onAcarsMsg(const AcarsMsg& a)

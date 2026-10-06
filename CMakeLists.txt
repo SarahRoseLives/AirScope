@@ -119,6 +119,7 @@ add_executable(AirScope
     src/decode/json_mini.cpp
     src/util/log.cpp
     src/voice/wav_writer.cpp
+    src/voice/am_voice.cpp
     src/audio/audio_output.cpp
     src/audio/audio_player.cpp
     src/audio/miniaudio_impl.cpp

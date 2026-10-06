@@ -586,7 +586,8 @@ void drawSpectrum(App& app, Receiver& r, int idx, bool voiceView)
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && app.placingDecoder)
             {
                 app.placingDecoder = false;
-                r.decoders.addDecoder(mp.x * 1e6, app.newBaud > 0 ? app.newBaud : 1200);
+                int baud = (r.role == RxRole::Acars) ? kAcarsBaud : kVoiceBaud;
+                r.decoders.addDecoder(mp.x * 1e6, baud);
             }
         }
         else if (app.placingDecoder && app.placingRx == idx)
@@ -762,6 +763,37 @@ void drawDecoders(App& app)
         if (ImGui::Combo("Audio out", &app.audioDevice, names.data(), (int)names.size()))
             for (auto& rp : app.rx) rp->decoders.setAudioDevice(app.audioDevice);
     }
+    if (ImGui::Checkbox(_L("Record voice calls"), &app.recordVoice))
+    {
+        RecordFormat rf = (app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV;
+        for (auto& rp : app.rx)
+        {
+            rp->decoders.setRecording(app.recordVoice, app.recordDir);
+            rp->decoders.setRecordFormat(rf);
+        }
+    }
+    ImGui::SameLine();
+    {
+        const char* rf[] = {"WAV", "OGG"};
+        ImGui::SetNextItemWidth(70);
+        if (ImGui::Combo("##recfmt", &app.recordFormat, rf, 2))
+        {
+            RecordFormat f = (app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV;
+            for (auto& rp : app.rx) rp->decoders.setRecordFormat(f);
+        }
+    }
+    if (app.recordVoice)
+    {
+        int active = 0;
+        for (auto& rp : app.rx) active += rp->decoders.recordingCount();
+        if (active > 0)
+        {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "REC (%d)", active);
+        }
+    }
+    ImGui::SetNextItemWidth(-90.0f);
+    ImGui::InputText("Folder", app.recordDir, sizeof(app.recordDir));
     ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
     ImGui::Separator();
@@ -801,14 +833,21 @@ void drawDecoders(App& app)
                 app.selectedDecoder = d.channelId;
                 app.selectedRx = (int)(std::find_if(app.rx.begin(), app.rx.end(),
                     [&](const std::unique_ptr<Receiver>& p){ return p.get() == row.r; }) - app.rx.begin());
+                if (d.isVoice)
+                    row.r->decoders.setVoiceMonitor(d.channelId);
             }
             ImGui::PopStyleColor(2);
             ImGui::SameLine();
-            ImGui::TextColored(c, "%s", d.locked ? "LOCK" : "--");
+            ImGui::TextColored(c, "%s", d.monitored ? "MON" : (d.locked ? "LOCK" : "--"));
             ImGui::TableNextColumn();
             ImGui::Text("%.4f", d.freqMHz);
             ImGui::TableNextColumn();
-            ImGui::Text("%d", d.baud);
+            if (d.isVoice)
+                ImGui::TextUnformatted("Voice");
+            else if (d.baud == kAcarsBaud)
+                ImGui::TextUnformatted("ACARS");
+            else
+                ImGui::Text("%d", d.baud);
             ImGui::TableNextColumn();
             ImGui::Text("%llu", (unsigned long long)d.msgs);
             ImGui::TableNextColumn();

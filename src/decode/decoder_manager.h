@@ -6,6 +6,7 @@
 
 #include "decode/decoder.h"
 #include "decode/message_log.h"
+#include "voice/wav_writer.h"
 #include "dsp/ddc.h"
 #include "audio/audio_output.h"
 
@@ -31,6 +32,8 @@ public:
         double ebno;
         uint64_t msgs;
         bool isB = false; // set by the caller for the secondary receiver
+        bool monitored = false;
+        bool isVoice = false;
     };
 
     ~DecoderManager() { stop(); }
@@ -66,6 +69,14 @@ public:
 
     // Persistence: forward the SQLite store to all message logs.
     void setMessageStore(MessageStore* s);
+
+    // Voice: route one AM-voice channel to the speakers, and record calls.
+    void setVoiceMonitor(int channelId);
+    int  voiceMonitor() const { return voiceMonitorId_; }
+    void setRecording(bool on, const std::string& dir);
+    void setRecordFormat(RecordFormat fmt);
+    bool recording() const { return recordOn_; }
+    int  recordingCount();
 
     // Audio output device selection (index 0 = system default).
     std::vector<std::string> audioDevices() { return audio_.listDevices(); }
@@ -123,4 +134,8 @@ private:
     AudioOutput audio_;
     bool audioEnabled_ = true;
     int maxWorkers_ = 8;
+    int voiceMonitorId_ = -1;
+    bool recordOn_ = false;
+    std::string recordDir_ = "recordings";
+    RecordFormat recordFmt_ = RecordFormat::WAV;
 };

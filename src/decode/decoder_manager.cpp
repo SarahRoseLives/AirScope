@@ -53,6 +53,7 @@ void DecoderManager::stop()
     workers_.clear();
     if (audioEnabled_)
         audio_.stop();
+    voiceMonitorId_ = -1;
 }
 
 void DecoderManager::feed(const float* iq, int nComplex)
@@ -134,8 +135,15 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
         for (auto& sb : bestW->subbands)
         {
             if (sb != bestSb) continue;
-            sb->decoders.emplace_back(std::make_shared<Decoder>(
-                sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_));
+            auto dec = std::make_shared<Decoder>(
+                sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_,
+                &audio_, &voiceCallLog_);
+            if (baud == kVoiceBaud)
+            {
+                if (voiceMonitorId_ < 0) { dec->setMonitored(true); voiceMonitorId_ = id; }
+                dec->setRecording(recordOn_, recordDir_, recordFmt_);
+            }
+            sb->decoders.push_back(dec);
             bestW->count.fetch_add(1);
             bestW->weight.fetch_add(1);
             return id;
@@ -154,8 +162,15 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
 
     std::lock_guard<std::mutex> lk(best->dMtx);
     auto sb = std::make_shared<SubBand>(Fs_, centerHz_, freqHz, kSubRateTarget, kSubBW);
-    sb->decoders.emplace_back(std::make_shared<Decoder>(
-        sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_));
+    auto dec = std::make_shared<Decoder>(
+        sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_,
+        &audio_, &voiceCallLog_);
+    if (baud == kVoiceBaud)
+    {
+        if (voiceMonitorId_ < 0) { dec->setMonitored(true); voiceMonitorId_ = id; }
+        dec->setRecording(recordOn_, recordDir_, recordFmt_);
+    }
+    sb->decoders.push_back(dec);
     best->subbands.push_back(std::move(sb));
     best->count.fetch_add(1);
     best->weight.fetch_add(1);
@@ -178,6 +193,8 @@ void DecoderManager::removeDecoder(int channelId)
                     w->weight.fetch_sub(1);
                     if (decs.empty())
                         w->subbands.erase(sbIt); // drop now-empty sub-band
+                    if (channelId == voiceMonitorId_)
+                        voiceMonitorId_ = -1;
                     return;
                 }
         }
@@ -203,6 +220,60 @@ void DecoderManager::setMessageStore(MessageStore* s)
 {
     log_.setStore(s);
     voiceCallLog_.setStore(s);
+}
+
+void DecoderManager::setVoiceMonitor(int channelId)
+{
+    voiceMonitorId_ = channelId;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& d : sb->decoders)
+                d->setMonitored(d->isVoice() && d->channelId() == channelId);
+    }
+    audio_.clear();
+}
+
+void DecoderManager::setRecording(bool on, const std::string& dir)
+{
+    recordOn_ = on;
+    if (!dir.empty()) recordDir_ = dir;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& d : sb->decoders)
+                if (d->isVoice())
+                    d->setRecording(on, recordDir_, recordFmt_);
+    }
+}
+
+void DecoderManager::setRecordFormat(RecordFormat fmt)
+{
+    recordFmt_ = fmt;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& d : sb->decoders)
+                if (d->isVoice())
+                    d->setRecording(recordOn_, recordDir_, fmt);
+    }
+}
+
+int DecoderManager::recordingCount()
+{
+    int n = 0;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& d : sb->decoders)
+                if (d->isVoice() && d->recordingNow())
+                    ++n;
+    }
+    return n;
 }
 
 // Scan a directory for WAV/OGG voice recordings and populate VoiceCallLog.
@@ -345,7 +416,8 @@ std::vector<DecoderManager::Status> DecoderManager::status()
         for (auto& sb : w->subbands)
             for (auto& d : sb->decoders)
                 out.push_back({d->channelId(), d->freqMHz(), d->baud(),
-                               d->locked(), d->ebno(), d->msgCount(), false});
+                               d->locked(), d->ebno(), d->msgCount(), false,
+                               d->monitored(), d->isVoice()});
     }
     std::sort(out.begin(), out.end(),
               [](const Status& a, const Status& b) { return a.freqMHz < b.freqMHz; });
