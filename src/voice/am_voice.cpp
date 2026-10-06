@@ -46,8 +46,10 @@ void AmVoiceDecoder::process(const float* env, int n)
         dcState_ += (x - dcState_) * dcR_;
         double y = x - dcState_;
 
-        // Squelch power accumulator.
-        sigSq_ += y * y;
+        // Squelch keys off the carrier / IF envelope level (mean amplitude),
+        // NOT the demodulated audio: keying on audio would close the squelch
+        // on any pause in modulation and chop the audio up.
+        sigSq_ += x;
         sigN_++;
 
         // Resample to 8 kHz (fractional phase accumulator).
@@ -59,8 +61,8 @@ void AmVoiceDecoder::process(const float* env, int n)
         // Update squelch / level roughly every 20 ms.
         if (sigN_ >= 160)
         {
-            double rms = std::sqrt(sigSq_ / (double)sigN_);
-            sigDb_ = 20.0 * std::log10(rms + 1e-9);
+            double lvl = sigSq_ / (double)sigN_;
+            sigDb_ = 20.0 * std::log10(lvl + 1e-9);
             sigSq_ = 0.0;
             sigN_ = 0;
 
