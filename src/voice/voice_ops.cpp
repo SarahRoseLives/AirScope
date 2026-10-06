@@ -1,15 +1,21 @@
 #include "core/app.h"
 #include "core/main_funcs.h"
 
+#include <cmath>
+
 // Retune a receiver to a new center. When `preserving` is true the current
 // decoders are re-added at their same absolute frequencies (band browsing);
 // otherwise they are wiped.
 void retuneReceiver(Receiver& r, double centerMHz, bool preserving)
 {
     std::vector<std::pair<double, int>> keep;
+    double monFreq = -1.0; // frequency of the decoder that was being monitored
     if (preserving)
         for (auto& s : r.decoders.status())
+        {
             keep.push_back({s.freqMHz, s.baud});
+            if (s.monitored) monFreq = s.freqMHz;
+        }
 
     r.centerMHz = centerMHz;
     r.view.resetView = true;
@@ -24,4 +30,13 @@ void retuneReceiver(Receiver& r, double centerMHz, bool preserving)
 
     for (auto& k : keep)
         r.decoders.addDecoder(k.first * 1e6, k.second);
+
+    // Re-attach the monitor to the same channel after the rebuild.
+    if (monFreq >= 0.0)
+        for (auto& s : r.decoders.status())
+            if (s.baud == kVoiceBaud && std::fabs(s.freqMHz - monFreq) < 1e-3)
+            {
+                r.decoders.setVoiceMonitor(s.channelId);
+                break;
+            }
 }

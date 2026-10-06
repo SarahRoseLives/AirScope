@@ -429,6 +429,9 @@ void DecoderManager::removeAll()
         std::lock_guard<std::mutex> ql(w->qMtx);
         w->queue.clear();
     }
+    // The monitored decoder is gone; allow the next voice decoder added to
+    // become the monitor again (otherwise audio stays dead after a retune).
+    voiceMonitorId_ = -1;
 }
 
 int DecoderManager::decoderCount()

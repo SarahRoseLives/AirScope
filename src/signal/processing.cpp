@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cmath>
 #include <complex>
 #include <cstdio>
 #include <cstdlib>
@@ -140,13 +141,24 @@ void updateRateChange(App& app)
             continue;
 
         std::vector<std::pair<double, int>> keep;
+        double monFreq = -1.0;
         for (auto& s : rp->decoders.status())
+        {
             keep.push_back({s.freqMHz, s.baud});
+            if (s.monitored) monFreq = s.freqMHz;
+        }
         double center = rp->src->centerFreq();
         rp->decoders.removeAll();
         rp->decoders.configure(fs, center);
         for (auto& k : keep)
             rp->decoders.addDecoder(k.first * 1e6, k.second);
+        if (monFreq >= 0.0)
+            for (auto& s : rp->decoders.status())
+                if (s.baud == kVoiceBaud && std::fabs(s.freqMHz - monFreq) < 1e-3)
+                {
+                    rp->decoders.setVoiceMonitor(s.channelId);
+                    break;
+                }
         rp->lastConfiguredFs = fs;
         if (rp == app.rx.front())
             app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
