@@ -131,25 +131,29 @@ void processFft(SpectrumView& v, App& app, double fc, double fs)
 
 void updateRateChange(App& app)
 {
-    if (!app.active->running())
-        return;
-    double fs = app.active->sampleRate();
-    if (fs <= 1.0 || std::fabs(fs - app.lastConfiguredFs) < 1.0)
-        return;
+    for (auto& rp : app.rx)
+    {
+        if (!rp || !rp->src || !rp->src->running())
+            continue;
+        double fs = rp->src->sampleRate();
+        if (fs <= 1.0 || std::fabs(fs - rp->lastConfiguredFs) < 1.0)
+            continue;
 
-    std::vector<std::pair<double, int>> keep;
-    for (auto& s : app.decoders.status())
-        keep.push_back({s.freqMHz, s.baud});
-    double center = app.active->centerFreq();
-    app.decoders.removeAll();
-    app.decoders.configure(fs, center);
-    for (auto& k : keep)
-        app.decoders.addDecoder(k.first * 1e6, k.second);
-    app.lastConfiguredFs = fs;
-    app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
-    app.viewA.resetView = true;
-    if (app.viewA.curN > 0)
-        updateFreqAxis(app.viewA, center, fs, app.viewA.curN);
+        std::vector<std::pair<double, int>> keep;
+        for (auto& s : rp->decoders.status())
+            keep.push_back({s.freqMHz, s.baud});
+        double center = rp->src->centerFreq();
+        rp->decoders.removeAll();
+        rp->decoders.configure(fs, center);
+        for (auto& k : keep)
+            rp->decoders.addDecoder(k.first * 1e6, k.second);
+        rp->lastConfiguredFs = fs;
+        if (rp == app.rx.front())
+            app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
+        rp->view.resetView = true;
+        if (rp->view.curN > 0)
+            updateFreqAxis(rp->view, center, fs, rp->view.curN);
+    }
 }
 
 // Drives the voice-follow state machine once per frame while a source runs.

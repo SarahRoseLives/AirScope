@@ -1,6 +1,4 @@
-// Shared function declarations — everything that was originally in main.cpp.
-// Definitions live in signal/processing.cpp, voice/voice_ops.cpp, gui/gui_panels.cpp,
-// session/session.cpp, and state/config.cpp.
+// Shared function declarations.
 #pragma once
 
 #include "core/app.h"
@@ -13,18 +11,18 @@ void processFft(SpectrumView&, App&, double fc, double fs);
 void updateRateChange(App&);
 
 // voice/voice_ops.cpp
-void retuneActive(App&, double centerMHz);
-void retunePreserving(App&, double centerMHz);
+void retuneReceiver(Receiver&, double centerMHz, bool preserving);
 
 // session/session.cpp
 void updateFeed(App&);
-void startActive(App&);
+void startAll(App&);
+void stopAll(App&);
 
 // gui/gui_panels.cpp
 void drawDockHost(App&);
 void drawControls(App&);
-void drawSpectrum(App&, SpectrumView&, DecoderManager&, const char*, bool, bool);
-void drawWaterfall(App&, SpectrumView&, const char*);
+void drawSpectrum(App&, Receiver&, int idx, bool voiceView);
+void drawWaterfall(App&, Receiver&, int idx);
 void drawDecoders(App&);
 void drawMessages(App&);
 void drawAircraft(App&);

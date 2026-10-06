@@ -430,45 +430,63 @@ void WebServer::serve(int port)
 
             if (path.find("/api/messages") == 0)
             {
-                auto items = decodersA ? decodersA->log().snapshot() : std::vector<DecodedMessage>{};
-                if (decodersB && dualMode && *dualMode) { auto b = decodersB->log().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
+                std::vector<DecodedMessage> items;
+                for (auto* r : receivers) {
+                    if (!r) continue;
+                    auto b = r->decoders.log().snapshot();
+                    items.insert(items.end(), b.begin(), b.end());
+                }
                 std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.timeSec > b.timeSec;});
                 if ((int)items.size() > limit) items.resize(limit);
                 result = jsonArray(mapTo(items, messageJson));
             }
             else if (path.find("/api/voicecalls") == 0)
             {
-                auto items = decodersA ? decodersA->voiceCallLog().snapshot() : std::vector<VoiceCallRecord>{};
-                if (decodersB && dualMode && *dualMode) { auto b = decodersB->voiceCallLog().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
+                std::vector<VoiceCallRecord> items;
+                for (auto* r : receivers) {
+                    if (!r) continue;
+                    auto b = r->decoders.voiceCallLog().snapshot();
+                    items.insert(items.end(), b.begin(), b.end());
+                }
                 std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.timeSec > b.timeSec;});
                 result = jsonArray(mapTo(items, voiceCallJson));
             }
             else if (path.find("/api/aircraft") == 0)
             {
-                auto items = decodersA ? decodersA->aircraftTable().snapshot() : std::vector<AircraftEntry>{};
-                if (decodersB && dualMode && *dualMode) { auto b = decodersB->aircraftTable().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
+                std::vector<AircraftEntry> items;
+                for (auto* r : receivers) {
+                    if (!r) continue;
+                    auto b = r->decoders.aircraftTable().snapshot();
+                    items.insert(items.end(), b.begin(), b.end());
+                }
                 std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.msgs > b.msgs;});
                 result = jsonArray(mapTo(items, aircraftJson));
             }
             else if (path.find("/api/decoders") == 0)
             {
-                auto items = decodersA ? decodersA->status() : std::vector<DecoderManager::Status>{};
-                if (decodersB && dualMode && *dualMode) { auto b = decodersB->status(); items.insert(items.end(), b.begin(), b.end()); }
+                std::vector<DecoderManager::Status> items;
+                for (auto* r : receivers) {
+                    if (!r) continue;
+                    auto b = r->decoders.status();
+                    items.insert(items.end(), b.begin(), b.end());
+                }
                 result = jsonArray(mapTo(items, decoderJson));
             }
             else if (path.find("/api/status") == 0)
             {
+                Receiver* first = nullptr;
+                for (auto* r : receivers) if (r) { first = r; break; }
                 std::ostringstream o;
                 o << '{';
-                if (active && *active) {
-                    o << "\"r\":" << ((*active)->running() ? 1 : 0);
-                    o << ",\"fc\":" << (*active)->centerFreq();
-                    o << ",\"fs\":" << (*active)->sampleRate();
+                if (first && first->src) {
+                    o << "\"r\":" << (first->running() ? 1 : 0);
+                    o << ",\"fc\":" << first->centerFreq();
+                    o << ",\"fs\":" << first->sampleRate();
                 } else { o << "\"r\":0,\"fc\":0,\"fs\":0"; }
-                if (decodersA) {
-                    o << ",\"nd\":" << decodersA->decoderCount();
-                    o << ",\"ns\":" << decodersA->subbandCount();
-                    o << ",\"dr\":" << decodersA->drops();
+                if (first) {
+                    o << ",\"nd\":" << first->decoders.decoderCount();
+                    o << ",\"ns\":" << first->decoders.subbandCount();
+                    o << ",\"dr\":" << first->decoders.drops();
                 }
                 o << '}';
                 result = o.str();

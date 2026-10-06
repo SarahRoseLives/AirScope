@@ -13,6 +13,9 @@
 #include "version.h"
 #include "gui/waterfall.h"
 #include "gui/copyable.h"
+#ifdef HAS_AIRSPY
+#include "sdr/airspy_source.h"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -26,14 +29,12 @@
 #include <utility>
 #include <vector>
 
-// Light-mode colour dimmer — accent colours that work on a dark background
-// are too washed-out on a white one.  Halve the RGB channels when in light mode.
+// Light-mode colour dimmer.
 inline ImVec4 Lc(const App& app, const ImVec4& c) {
     if (!app.lightMode) return c;
     return ImVec4(c.x * 0.44f, c.y * 0.56f, c.z * 0.44f, c.w);
 }
 
-// PPM crystal-offset control: typed value plus a slider for fine adjustment.
 static bool drawPpmAdjust(const char* label, float* ppm)
 {
     ImGui::PushID(label);
@@ -60,359 +61,229 @@ static bool drawPpmAdjust(const char* label, float* ppm)
 #include <shellapi.h>
 #endif
 
+static void refreshDevices(Receiver& r)
+{
+    if (!r.src)
+        r.src = makeSdrSource(r.mode);
+    r.devices = r.src ? r.src->listDevices() : std::vector<SdrDeviceInfo>{};
+}
+
+static void drawDeviceCombo(Receiver& r)
+{
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh##dev"))
+        refreshDevices(r);
+    ImGui::SameLine();
+    ImGui::Text("(%d)", (int)r.devices.size());
+    if (r.devices.empty())
+        return;
+    if (r.deviceIndex >= (int)r.devices.size())
+        r.deviceIndex = 0;
+    std::string preview = r.devices[r.deviceIndex].name;
+    if (ImGui::BeginCombo("Device", preview.c_str()))
+    {
+        for (int i = 0; i < (int)r.devices.size(); ++i)
+        {
+            bool sel = (r.deviceIndex == i);
+            std::string label = std::to_string(i) + ": " + r.devices[i].name +
+                                " [" + r.devices[i].serial + "]";
+            if (ImGui::Selectable(label.c_str(), sel))
+                r.deviceIndex = i;
+        }
+        ImGui::EndCombo();
+    }
+}
+
+// One receiver's configuration panel.
+static void drawReceiverControls(App& app, Receiver& r, int idx)
+{
+    ImGui::PushID(idx);
+    bool running = r.running();
+
+    char hdr[64];
+    std::snprintf(hdr, sizeof(hdr), "Receiver %d  -  %s", idx + 1, rxModeName(r.mode));
+    ImGui::Separator();
+    ImGui::TextUnformatted(hdr);
+
+    // Source type.
+    int modeSel = r.mode;
+    const char* modes[4];
+    int nm = 0;
+    modes[nm++] = "RTL-SDR";
+    modes[nm++] = "WAV file";
+#ifdef HAS_AIRSPY
+    modes[nm++] = "Airspy";
+#endif
+#ifdef HAS_SDRPLAY
+    modes[nm++] = "SDRplay";
+#endif
+    ImGui::BeginDisabled(running);
+    if (ImGui::Combo("Source", &modeSel, modes, nm))
+    {
+        // Map combo index back to a mode constant.
+        int map[] = {kRxRtl, kRxWav,
+#ifdef HAS_AIRSPY
+                     kRxAirspy,
+#endif
+#ifdef HAS_SDRPLAY
+                     kRxSdrplay,
+#endif
+        };
+        r.mode = map[std::clamp(modeSel, 0, nm - 1)];
+        r.src = makeSdrSource(r.mode);
+        r.devices.clear();
+        refreshDevices(r);
+    }
+    ImGui::EndDisabled();
+
+    ImGui::Checkbox("Show spectrum/waterfall", &r.showSpectrum);
+
+    if (r.mode == kRxWav)
+    {
+        ImGui::SetNextItemWidth(-90.0f);
+        ImGui::InputText("##wavpath", r.wavPath, sizeof(r.wavPath));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse..."))
+            openWavDialog(r.wavPath, sizeof(r.wavPath));
+        ImGui::Checkbox("Loop", &r.wavLoop);
+        ImGui::InputDouble("Center label (MHz)", &r.centerMHz, 0.1, 1.0, "%.4f");
+    }
+    else
+    {
+        drawDeviceCombo(r);
+
+        if (ImGui::InputDouble("Center (MHz)", &r.centerMHz, 0.1, 1.0, "%.4f"))
+        {
+            r.view.resetView = true;
+            if (running) r.src->setCenterFreq(r.centerMHz * 1e6);
+        }
+
+        if (r.mode == kRxRtl)
+        {
+            if (ImGui::Combo("Sample rate (MHz)", &r.rateIdx, kRateLabels, kNumRates))
+            {
+                r.view.resetView = true;
+                if (running) r.src->setSampleRate(kRates[r.rateIdx]);
+            }
+            if (ImGui::Checkbox("Auto gain (AGC)", &r.autoGain))
+                if (running) r.src->setGain(r.autoGain ? -1.0 : (double)r.gainDb);
+            if (!r.autoGain)
+                if (ImGui::SliderFloat("Gain (dB)", &r.gainDb, 0.0f, 50.0f, "%.1f"))
+                    if (running) r.src->setGain((double)r.gainDb);
+            if (ImGui::Checkbox("Bias-T", &r.biasTee))
+                if (running) r.src->setBiasTee(r.biasTee);
+        }
+        else if (r.mode == kRxAirspy)
+        {
+#ifdef HAS_AIRSPY
+            if (ImGui::Combo("Sample rate (MHz)", &r.apRateIdx, kAirspyRateLabels, kAirspyNumRates))
+            {
+                r.view.resetView = true;
+                if (running) r.src->setSampleRate(kAirspyRates[r.apRateIdx]);
+            }
+            ImGui::Separator();
+            if (ImGui::RadioButton("Sensitive", r.apGainMode == 0)) r.apGainMode = 0;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Linear", r.apGainMode == 1)) r.apGainMode = 1;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Free", r.apGainMode == 2)) r.apGainMode = 2;
+
+            auto* a = dynamic_cast<AirspySource*>(r.src.get());
+            if (r.apGainMode == 0)
+            {
+                if (ImGui::SliderInt("Sensitivity gain", &r.apSense, 0, 21) && a)
+                { a->setGainMode(0); a->setSenseGain(r.apSense); }
+            }
+            else if (r.apGainMode == 1)
+            {
+                if (ImGui::SliderInt("Linearity gain", &r.apLinear, 0, 21) && a)
+                { a->setGainMode(1); a->setLinearGain(r.apLinear); }
+            }
+            else
+            {
+                if (ImGui::Checkbox("LNA AGC", &r.apLnaAgc) && a) a->setLnaAgc(r.apLnaAgc);
+                ImGui::BeginDisabled(r.apLnaAgc);
+                if (ImGui::SliderInt("LNA gain", &r.apLna, 0, 15) && a) a->setLnaGain(r.apLna);
+                ImGui::EndDisabled();
+                if (ImGui::Checkbox("Mixer AGC", &r.apMixerAgc) && a) a->setMixerAgc(r.apMixerAgc);
+                ImGui::BeginDisabled(r.apMixerAgc);
+                if (ImGui::SliderInt("Mixer gain", &r.apMixer, 0, 15) && a) a->setMixerGain(r.apMixer);
+                ImGui::EndDisabled();
+                if (ImGui::SliderInt("VGA gain", &r.apVga, 0, 15) && a) a->setVgaGain(r.apVga);
+            }
+            if (ImGui::Checkbox("Bias T", &r.apBias) && a) a->setBiasTee(r.apBias);
+#else
+            ImGui::TextDisabled("Airspy support not built.");
+#endif
+        }
+        else if (r.mode == kRxSdrplay)
+        {
+            if (ImGui::Combo("Sample rate (MHz)", &r.spRateIdx, kSdrplayRateLabels, kSdrplayNumRates))
+            {
+                r.view.resetView = true;
+                if (running) r.src->setSampleRate(kSdrplayRates[r.spRateIdx]);
+            }
+            if (ImGui::Checkbox("AGC", &r.spAgc))
+                if (running) r.src->setGain(r.spAgc ? -1.0 : (double)r.spGRdB);
+            ImGui::BeginDisabled(r.spAgc);
+            if (ImGui::SliderInt("Gain reduction (dB)", &r.spGRdB, 20, 59))
+                if (running) r.src->setGain((double)r.spGRdB);
+            ImGui::EndDisabled();
+            if (ImGui::Checkbox("Bias-T", &r.spBias))
+                if (running) r.src->setBiasTee(r.spBias);
+        }
+
+        if (drawPpmAdjust("PPM", &r.ppm))
+            if (running) r.src->setPpm((double)r.ppm);
+    }
+
+    if (!r.status.empty())
+        ImGui::TextDisabled("%s", r.status.c_str());
+    ImGui::PopID();
+}
+
 void drawControls(App& app)
 {
     ImGui::Begin((std::string(_L("Control")) + "###Control").c_str());
 
-    bool running = app.active->running();
+    bool anyRunning = false;
+    for (auto& rp : app.rx)
+        if (rp && rp->running()) anyRunning = true;
 
-    ImGui::BeginDisabled(running);
-#ifdef HAS_AIRSPY
-    const char* modes[] = {"RTL-SDR", "WAV file", "Dual RTL", "Airspy"};
-    int modeSel = (app.sourceMode == 1) ? 1 : (app.sourceMode == 4) ? 2
-                : (app.sourceMode == 5) ? 3 : 0;
-    if (ImGui::Combo(_L("Source"), &modeSel, modes, 4))
-        app.sourceMode = (modeSel == 1) ? 1 : (modeSel == 2) ? 4
-                     : (modeSel == 3) ? 5 : 0;
-#else
-    const char* modes[] = {"RTL-SDR", "WAV file", "Dual RTL"};
-    int modeSel = (app.sourceMode == 1) ? 1 : (app.sourceMode == 4) ? 2 : 0;
-    if (ImGui::Combo(_L("Source"), &modeSel, modes, 3))
-        app.sourceMode = (modeSel == 1) ? 1 : (modeSel == 2) ? 4 : 0;
-#endif
-    ImGui::EndDisabled();
-
-    ImGui::Separator();
-
-    if (!running)
+    if (!anyRunning)
     {
-        bool canStart = (app.sourceMode == 1) ? (app.wavPath[0] != '\0') : true;
-        ImGui::BeginDisabled(!canStart);
         if (ImGui::Button(_L("Start"), ImVec2(120, 0)))
-            startActive(app);
-        ImGui::EndDisabled();
+            startAll(app);
     }
     else
     {
         if (ImGui::Button(_L("Stop"), ImVec2(120, 0)))
-        {
-            app.active->stop();
-            app.decoders.stop();
-            app.decoders.removeAll();
-            if (app.dualMode)
-            {
-                app.sdrB.stop();
-                app.decodersB.stop();
-                app.decodersB.removeAll();
-            }
-            app.dualMode = false;
-            app.status = "Idle";
-        }
+            stopAll(app);
     }
     ImGui::SameLine();
     ImGui::TextUnformatted(app.status.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("  AirScope v" AIRSCOPE_VERSION);
 
-    // Version + update banner.
-    ImGui::TextDisabled("AirScope v" AIRSCOPE_VERSION);
     {
         VersionCheck::State st = app.verCheck.state();
         if (st == VersionCheck::UpdateAvailable)
         {
-            std::string latest = app.verCheck.latestVersion();
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "  Update available: v%s",
-                               latest.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Get update"))
-            {
-#if defined(_WIN32)
-                std::string url = app.verCheck.productUrl();
-                if (url.empty()) url = "https://sarahsforge.dev/login";
-                ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-#endif
-            }
-        }
-        else if (st == VersionCheck::UpToDate)
-        {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "  (up to date)");
-        }
-        else if (st == VersionCheck::Unreleased)
-        {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.7f, 0.5f, 1.0f, 1.0f), "  (unreleased)");
-        }
-        else if (st == VersionCheck::Checking)
-        {
-            ImGui::SameLine();
-            ImGui::TextDisabled("  checking for updates...");
+                               app.verCheck.latestVersion().c_str());
         }
     }
 
     ImGui::Separator();
 
-    if (app.sourceMode == 0)
-    {
-        // ---- RTL-SDR ----
-        if (ImGui::Button(_L("Refresh devices")))
-            app.devices = app.sdr.listDevices();
-        ImGui::SameLine();
-        ImGui::Text("(%d found)", (int)app.devices.size());
-
-        if (!app.devices.empty())
-        {
-            std::string preview = app.devices[std::min(app.deviceIndex, (int)app.devices.size() - 1)].name;
-            if (ImGui::BeginCombo("Device", preview.c_str()))
-            {
-                for (int i = 0; i < (int)app.devices.size(); ++i)
-                {
-                    bool sel = (app.deviceIndex == i);
-                    std::string label = std::to_string(i) + ": " + app.devices[i].name +
-                                        " [" + app.devices[i].serial + "]";
-                    if (ImGui::Selectable(label.c_str(), sel))
-                        app.deviceIndex = i;
-                }
-                ImGui::EndCombo();
-            }
-        }
-        else
-        {
-            ImGui::TextDisabled("No RTL-SDR devices. Click Refresh.");
-        }
-
-        if (ImGui::InputDouble("Center (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.sdr.setCenterFreq(app.centerFreqMHz * 1e6);
-        }
-        if (ImGui::Combo(_L("Sample rate (MHz)"), &app.sampleRateIdx, kRateLabels, kNumRates))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.sdr.setSampleRate(kRates[app.sampleRateIdx]);
-        }
-        if (ImGui::Checkbox(_L("Auto gain (AGC)"), &app.autoGain))
-        {
-            if (running)
-                app.sdr.setGain(app.autoGain ? -1.0 : (double)app.gainDb);
-        }
-        if (!app.autoGain)
-        {
-            if (ImGui::SliderFloat("Gain (dB)", &app.gainDb, 0.0f, 50.0f, "%.1f"))
-            {
-                if (running)
-                    app.sdr.setGain((double)app.gainDb);
-            }
-        }
-        if (ImGui::Checkbox(_L("Bias-T"), &app.biasTee))
-        {
-            if (running)
-                app.sdr.setBiasTee(app.biasTee);
-        }
-        if (drawPpmAdjust("PPM", &app.ppm))
-        {
-            if (running)
-                app.sdr.setPpm((double)app.ppm);
-        }
-        if (ImGui::Checkbox(_L("DC block"), &app.dcBlock))
-        {
-            if (running)
-                app.sdr.setDcBlock(app.dcBlock);
-        }
-    }
-    else if (app.sourceMode == 1)
-    {
-        // ---- WAV file ----
-        ImGui::SetNextItemWidth(-90.0f);
-        ImGui::InputText("##wavpath", app.wavPath, sizeof(app.wavPath));
-        ImGui::SameLine();
-        if (ImGui::Button(_L("Browse...")))
-            openWavDialog(app.wavPath, sizeof(app.wavPath));
-
-        if (ImGui::Checkbox(_L("Loop"), &app.wavLoop))
-        {
-            if (running)
-                app.wav.setLoop(app.wavLoop);
-        }
-        if (ImGui::InputDouble("Center label (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-            app.viewA.resetView = true;
-
-        if (running)
-        {
-            ImGui::ProgressBar((float)app.wav.progress(), ImVec2(-1, 0));
-            ImGui::Text("WAV: %d ch, %d-bit, %.1f kHz",
-                        app.wav.channels(), app.wav.bits(), app.wav.sampleRate() / 1e3);
-        }
-    }
-#ifdef HAS_AIRSPY
-    else if (app.sourceMode == 5)
-    {
-        // ---- Airspy (native) ----
-        if (ImGui::Button(_L("Refresh devices")))
-            app.devices = app.airspy.listDevices();
-        ImGui::SameLine();
-        ImGui::Text("(%d found)", (int)app.devices.size());
-        if (!app.devices.empty())
-        {
-            std::string preview = app.devices[std::min(app.deviceIndex, (int)app.devices.size() - 1)].name;
-            if (ImGui::BeginCombo("Device", preview.c_str()))
-            {
-                for (int i = 0; i < (int)app.devices.size(); ++i)
-                {
-                    bool sel = (app.deviceIndex == i);
-                    std::string label = std::to_string(i) + ": " + app.devices[i].name +
-                                        " [" + app.devices[i].serial + "]";
-                    if (ImGui::Selectable(label.c_str(), sel))
-                        app.deviceIndex = i;
-                }
-                ImGui::EndCombo();
-            }
-        }
-
-        if (ImGui::InputDouble("Center (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.airspy.setCenterFreq(app.centerFreqMHz * 1e6);
-        }
-        if (ImGui::Combo(_L("Sample rate (MHz)"), &app.airspySampleRateIdx, kAirspyRateLabels, kAirspyNumRates))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.airspy.setSampleRate(kAirspyRates[app.airspySampleRateIdx]);
-        }
-
-        ImGui::Separator();
-        if (ImGui::RadioButton("Sensitive", app.airspyGainMode == 0)) app.airspyGainMode = 0;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Linear", app.airspyGainMode == 1)) app.airspyGainMode = 1;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Free", app.airspyGainMode == 2)) app.airspyGainMode = 2;
-
-        if (app.airspyGainMode == 0)
-        {
-            if (ImGui::SliderInt("Sensitivity gain", &app.airspySenseGain, 0, 21))
-            {
-                if (running) app.airspy.setGainMode(0), app.airspy.setSenseGain(app.airspySenseGain);
-            }
-        }
-        else if (app.airspyGainMode == 1)
-        {
-            if (ImGui::SliderInt("Linearity gain", &app.airspyLinearGain, 0, 21))
-            {
-                if (running) app.airspy.setGainMode(1), app.airspy.setLinearGain(app.airspyLinearGain);
-            }
-        }
-        else
-        {
-            if (ImGui::Checkbox("LNA AGC", &app.airspyLnaAgc))
-            {
-                if (running) app.airspy.setLnaAgc(app.airspyLnaAgc);
-            }
-            ImGui::BeginDisabled(app.airspyLnaAgc);
-            if (ImGui::SliderInt("LNA gain", &app.airspyLnaGain, 0, 15))
-            {
-                if (running) app.airspy.setLnaGain(app.airspyLnaGain);
-            }
-            ImGui::EndDisabled();
-
-            if (ImGui::Checkbox("Mixer AGC", &app.airspyMixerAgc))
-            {
-                if (running) app.airspy.setMixerAgc(app.airspyMixerAgc);
-            }
-            ImGui::BeginDisabled(app.airspyMixerAgc);
-            if (ImGui::SliderInt("Mixer gain", &app.airspyMixerGain, 0, 15))
-            {
-                if (running) app.airspy.setMixerGain(app.airspyMixerGain);
-            }
-            ImGui::EndDisabled();
-
-            if (ImGui::SliderInt("VGA gain", &app.airspyVgaGain, 0, 15))
-            {
-                if (running) app.airspy.setVgaGain(app.airspyVgaGain);
-            }
-        }
-        if (ImGui::Checkbox("Bias T (antenna power)", &app.airspyBias))
-        {
-            if (running) app.airspy.setBiasTee(app.airspyBias);
-        }
-        if (drawPpmAdjust("PPM", &app.ppm))
-        {
-            if (running) app.airspy.setPpm((double)app.ppm);
-        }
-        if (ImGui::Checkbox(_L("DC block"), &app.dcBlock))
-        {
-            if (running) app.airspy.setDcBlock(app.dcBlock);
-        }
-    }
-#endif
-    if (app.sourceMode == 4)
-    {
-        // ---- Dual RTL: two independent RTL-SDRs ----
-        ImGui::TextColored(Lc(app, ImVec4(0.4f, 0.8f, 1.0f, 1.0f)), "RTL A (Spectrum / Waterfall A)");
-        ImGui::Separator();
-        if (ImGui::Button("Refresh A"))
-            app.devices = app.sdr.listDevices();
-        ImGui::SameLine();
-        ImGui::Text("(%d found)", (int)app.devices.size());
-        if (!app.devices.empty())
-        {
-            std::string preview = app.devices[std::min(app.deviceIndex, (int)app.devices.size() - 1)].name;
-            if (ImGui::BeginCombo("Device A", preview.c_str()))
-            {
-                for (int i = 0; i < (int)app.devices.size(); ++i)
-                {
-                    bool sel = (app.deviceIndex == i);
-                    std::string label = std::to_string(i) + ": " + app.devices[i].name + " [" + app.devices[i].serial + "]";
-                    if (ImGui::Selectable(label.c_str(), sel)) app.deviceIndex = i;
-                }
-                ImGui::EndCombo();
-            }
-        }
-        if (ImGui::InputDouble("Center A (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-            app.viewA.resetView = true;
-        ImGui::Combo("Rate A (MHz)", &app.sampleRateIdx, kRateLabels, kNumRates);
-        if (ImGui::Checkbox("Auto gain A", &app.autoGain)) {}
-        if (!app.autoGain)
-            ImGui::SliderFloat("Gain A (dB)", &app.gainDb, 0.0f, 50.0f, "%.1f");
-        ImGui::Checkbox("Bias-T A", &app.biasTee);
-        if (drawPpmAdjust("PPM A", &app.ppm) && running)
-            app.sdr.setPpm((double)app.ppm);
-        ImGui::Checkbox("DC block A", &app.dcBlock);
-
-        ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f), "RTL B (Spectrum / Waterfall B)");
-        ImGui::Separator();
-        if (ImGui::Button("Refresh B"))
-            app.devices = app.sdrB.listDevices();
-        if (!app.devices.empty())
-        {
-            std::string preview = app.devices[std::min(app.deviceIndexB, (int)app.devices.size() - 1)].name;
-            if (ImGui::BeginCombo("Device B", preview.c_str()))
-            {
-                for (int i = 0; i < (int)app.devices.size(); ++i)
-                {
-                    bool sel = (app.deviceIndexB == i);
-                    std::string label = std::to_string(i) + ": " + app.devices[i].name + " [" + app.devices[i].serial + "]";
-                    if (ImGui::Selectable(label.c_str(), sel)) app.deviceIndexB = i;
-                }
-                ImGui::EndCombo();
-            }
-        }
-        if (ImGui::InputDouble("Center B (MHz)", &app.centerFreqMHzB, 0.1, 1.0, "%.4f"))
-            app.viewB.resetView = true;
-        ImGui::Combo("Rate B (MHz)", &app.sampleRateIdxB, kRateLabels, kNumRates);
-        if (ImGui::Checkbox("Auto gain B", &app.autoGainB)) {}
-        if (!app.autoGainB)
-            ImGui::SliderFloat("Gain B (dB)", &app.gainDbB, 0.0f, 50.0f, "%.1f");
-        ImGui::Checkbox("Bias-T B", &app.biasTeeB);
-        if (drawPpmAdjust("PPM B", &app.ppmB) && running)
-            app.sdrB.setPpm((double)app.ppmB);
-        ImGui::Checkbox("DC block B", &app.dcBlock); // same dcblock toggle
-    }
+    // Per-receiver configuration.
+    for (size_t i = 0; i < app.rx.size(); ++i)
+        if (app.rx[i])
+            drawReceiverControls(app, *app.rx[i], (int)i);
 
     ImGui::Separator();
+    // ---- global display settings ----
     ImGui::Combo("FFT size", &app.fftSizeIdx, kFftLabels, kNumFftSizes);
     ImGui::SliderFloat(_L("Averaging"), &app.avgAlpha, 0.0f, 0.98f, "%.2f");
     ImGui::Checkbox(_L("Auto-scale dB"), &app.autoScale);
@@ -420,75 +291,32 @@ void drawControls(App& app)
     ImGui::SliderFloat(_L("dB max"), &app.dbMax, -140.0f, 20.0f, "%.0f");
     if (app.dbMax < app.dbMin + 5.0f)
         app.dbMax = app.dbMin + 5.0f;
-
     if (ImGui::Button(_L("Reset view (fit band)")))
-    {
-        app.viewA.resetView = true;
-        app.viewB.resetView = true;
-    }
+        for (auto& rp : app.rx) rp->view.resetView = true;
     ImGui::SameLine();
     ImGui::TextDisabled("drag=pan  scroll=zoom  dbl-click=fit");
-
-    ImGui::BeginDisabled(app.sourceMode == 1);
     ImGui::Checkbox("Pan/scroll retunes SDR (browse band)", &app.bandBrowse);
-    ImGui::EndDisabled();
-    if (app.sourceMode == 1)
-        ImGui::TextDisabled("  (WAV: tuning is fixed to the file)");
+    ImGui::Checkbox(_L("DC block"), &app.dcBlock);
 
-    // Band plan bar along bottom of spectrum
-    if (ImGui::Checkbox(_L("Band Plan"), &app.showBandPlan));
-    if (app.showBandPlan)
+    // Band plan selection (shared list; per-receiver toggle below).
+    if (ImGui::Checkbox(_L("Band Plan"), &app.rx.front()->showBandPlan)) {}
+    if (app.rx.front()->showBandPlan)
     {
         ImGui::SameLine();
         if (ImGui::SmallButton("Reload##bpr"))
             scanBandPlans(app.bandPlanDir, app.bandPlanNames, app.bandPlanPaths);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Folder##bpf"))
+        if (!app.bandPlanNames.empty())
         {
-#if defined(_WIN32)
-            ShellExecuteA(nullptr, "open", app.bandPlanDir, nullptr, nullptr, SW_SHOW);
-#endif
-        }
-        if (app.bandPlanNames.empty())
-        {
-            ImGui::SameLine();
-            ImGui::TextDisabled("(no .json bandplans in bandplans/)");
-        }
-        else
-        {
-            if (app.bandPlanIdx >= (int)app.bandPlanNames.size())
-                app.bandPlanIdx = 0;
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##bplan-sel", &app.bandPlanIdx,
+            if (ImGui::Combo("##bplan-sel", &app.rx.front()->bandPlanIdx,
                              [](void* data, int idx) -> const char* {
                                  auto& v = *(std::vector<std::string>*)data;
                                  return idx >= 0 && idx < (int)v.size() ? v[idx].c_str() : "";
                              },
                              &app.bandPlanNames, (int)app.bandPlanNames.size()))
             {
-                if (app.bandPlanIdx >= 0 && app.bandPlanIdx < (int)app.bandPlanPaths.size())
-                    app.bandPlanLoaded = loadBandPlan(app.bandPlanPaths[app.bandPlanIdx]);
-            }
-        }
-    }
-
-    if (app.dualMode)
-    {
-        if (ImGui::Checkbox(_L("Band Plan (B)"), &app.showBandPlanB));
-        if (app.showBandPlanB && !app.bandPlanNames.empty())
-        {
-            if (app.bandPlanIdxB >= (int)app.bandPlanNames.size())
-                app.bandPlanIdxB = 0;
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::Combo("##bplan-sel-b", &app.bandPlanIdxB,
-                             [](void* data, int idx) -> const char* {
-                                 auto& v = *(std::vector<std::string>*)data;
-                                 return idx >= 0 && idx < (int)v.size() ? v[idx].c_str() : "";
-                             },
-                             &app.bandPlanNames, (int)app.bandPlanNames.size()))
-            {
-                if (app.bandPlanIdxB >= 0 && app.bandPlanIdxB < (int)app.bandPlanPaths.size())
-                    app.bandPlanLoadedB = loadBandPlan(app.bandPlanPaths[app.bandPlanIdxB]);
+                auto& r = *app.rx.front();
+                if (r.bandPlanIdx >= 0 && r.bandPlanIdx < (int)app.bandPlanPaths.size())
+                    r.bandPlanLoaded = loadBandPlan(app.bandPlanPaths[r.bandPlanIdx]);
             }
         }
     }
@@ -496,39 +324,25 @@ void drawControls(App& app)
     ImGui::Separator();
     ImGui::TextDisabled("Ctrl+click the spectrum to add a channel decoder there");
 
+    // ---- Database ----
     ImGui::Separator();
     if (ImGui::CollapsingHeader(_L("Database (SQLite log)")))
     {
         ImGui::Checkbox(_L("Log messages to database"), &app.logToDb);
         if (app.writeDb.enabled())
             ImGui::TextDisabled("  Session DB is active");
-        if (ImGui::SliderInt(_L("Keep DB (days)"), &app.maxDbAgeDays, 1, 90))
-        {
-            if (app.maxDbAgeDays < 1) app.maxDbAgeDays = 1;
-            if (app.maxDbAgeDays > 90) app.maxDbAgeDays = 90;
-        }
+        ImGui::SliderInt(_L("Keep DB (days)"), &app.maxDbAgeDays, 1, 90);
         ImGui::TextDisabled("  Archives in: .\\databases\\messages_*.db");
     }
 
+    // ---- Display ----
     ImGui::Separator();
     if (ImGui::CollapsingHeader(_L("Display")))
     {
         if (ImGui::Checkbox(_L("Light mode"), &app.lightMode))
         {
-            if (app.lightMode)
-            {
-                ImGui::StyleColorsLight();
-                ImGuiStyle& st = ImGui::GetStyle();
-                st.Colors[ImGuiCol_Text]                  = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-                st.Colors[ImGuiCol_TextDisabled]           = ImVec4(0.36f, 0.36f, 0.36f, 1.00f);
-                st.Colors[ImGuiCol_WindowBg]               = ImVec4(0.94f, 0.94f, 0.94f, 1.00f);
-                st.Colors[ImGuiCol_TableHeaderBg]          = ImVec4(0.73f, 0.73f, 0.73f, 1.00f);
-                st.Colors[ImGuiCol_TableRowBg]             = ImVec4(0.97f, 0.97f, 0.97f, 1.00f);
-                st.Colors[ImGuiCol_TableRowBgAlt]          = ImVec4(0.88f, 0.88f, 0.88f, 1.00f);
-                st.Colors[ImGuiCol_FrameBg]                = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
-            }
-            else
-                ImGui::StyleColorsDark();
+            if (app.lightMode) ImGui::StyleColorsLight();
+            else               ImGui::StyleColorsDark();
         }
         if (ImGui::SliderInt(_L("Font size"), &app.fontSize, 8, 24, "%d", ImGuiSliderFlags_AlwaysClamp))
         {
@@ -538,6 +352,7 @@ void drawControls(App& app)
         ImGui::TextDisabled("  Restart to apply");
     }
 
+    // ---- Output ----
     ImGui::Separator();
     if (ImGui::CollapsingHeader(_L("Output (message feed)")))
     {
@@ -564,62 +379,28 @@ void drawControls(App& app)
                                    (unsigned long long)app.feed.sbsSent());
             else
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                                   "Bind failed on :%d (port in use? try another)",
-                                   app.outSbsPort);
+                                   "Bind failed on :%d (port in use?)", app.outSbsPort);
         }
         ImGui::Text("Sent: %llu", (unsigned long long)app.feed.sent());
         ImGui::TextDisabled("ACARS -> JAERO JSONdump.");
-        ImGui::TextDisabled("SBS: VRS receiver -> Network, 127.0.0.1, this port, BaseStation.");
     }
 
+    // ---- IQ Recorder ----
     ImGui::Separator();
     if (ImGui::CollapsingHeader("IQ Recorder"))
     {
         ImGui::SetNextItemWidth(-70.0f);
         ImGui::InputText("IQ file", app.iqRecPath, sizeof(app.iqRecPath));
-        // Pre-buffer slider (disabled above 3 Msps)
-        double fs = app.active->running() ? app.active->sampleRate() : 0.0;
-        if (!app.active->running())
-            ImGui::BeginDisabled();
-        bool overLimit = (fs > 3.0e6);
-        if (overLimit)
-            ImGui::BeginDisabled();
-        if (ImGui::SliderFloat("Pre-buffer (s)", &app.iqBufferSec, 0.0f, 60.0f, "%.0f"))
-        {
-            app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
-        }
-        if (overLimit)
-        {
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::TextDisabled("(disabled > 3 Msps)");
-        }
-        else if (app.iqBufferSec > 0.0f && fs > 0.0)
-        {
-            size_t bytes = (size_t)(fs * app.iqBufferSec * 2 * sizeof(float));
-            char mem[32];
-            if (bytes >= 1024 * 1024 * 1024)
-                std::snprintf(mem, sizeof(mem), "(~%.1f GB)", (double)bytes / (1024.0 * 1024.0 * 1024.0));
-            else
-                std::snprintf(mem, sizeof(mem), "(~%.0f MB)", (double)bytes / (1024.0 * 1024.0));
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", mem);
-        }
-        if (!app.active->running())
-            ImGui::EndDisabled();
         bool iqRec = app.iqRecorder.isRecording();
         if (iqRec)
         {
             if (ImGui::Button("Stop##iqrec"))
                 app.iqRecorder.stop();
         }
-        else
+        else if (ImGui::Button("Start##iqrec"))
         {
-            if (ImGui::Button("Start##iqrec"))
-            {
-                if (app.active && app.active->running())
-                    app.iqRecorder.start(app.iqRecPath, app.active->sampleRate());
-            }
+            if (app.rx.front()->running())
+                app.iqRecorder.start(app.iqRecPath, app.rx.front()->sampleRate());
         }
         if (app.iqRecorder.isRecording())
         {
@@ -628,23 +409,7 @@ void drawControls(App& app)
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "REC %02d:%02d  —  %s",
                                m, s, app.iqRecorder.path().c_str());
         }
-    }
-
-    if (running)
-    {
-        if (app.sourceMode == 0)
-        {
-            double maxF = app.sdr.tunerMaxFreq();
-            if (maxF > 0.0 && app.centerFreqMHz * 1e6 > maxF)
-            {
-                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 90, 90, 255));
-                ImGui::TextWrapped("  WARNING: %.0f MHz is above this tuner's ~%.0f MHz "
-                                   "ceiling. The PLL can't lock here - pick a lower "
-                                   "frequency or use an R820T2/R828D dongle.",
-                                   app.centerFreqMHz, maxF / 1e6);
-                ImGui::PopStyleColor();
-            }
-        }
+        ImGui::TextDisabled("Records the first receiver's raw IQ.");
     }
 
     // ---- Web Dashboard ----
@@ -655,10 +420,9 @@ void drawControls(App& app)
         {
             if (app.webServerEnabled)
             {
-                app.webServer.decodersA = &app.decoders;
-                app.webServer.decodersB = &app.decodersB;
-                app.webServer.dualMode = &app.dualMode;
-                app.webServer.active = &app.active;
+                app.webServer.receivers.clear();
+                for (auto& rp : app.rx)
+                    app.webServer.receivers.push_back(rp.get());
                 app.webServer.start(app.webServerPort);
             }
             else
@@ -675,31 +439,23 @@ void drawControls(App& app)
         }
         else
         {
-            char url[64];
-            std::snprintf(url, sizeof(url), "http://localhost:%d", app.webServerPort);
-            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Running on port %d", app.webServerPort);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Open in browser"))
-            {
-#if defined(_WIN32)
-                ShellExecuteA(nullptr, "open", url, nullptr, nullptr, SW_SHOWNORMAL);
-#endif
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled(url);
+            ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "Running on port %d",
+                               app.webServerPort);
         }
     }
 
     ImGui::End();
 }
 
-void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* title,
-                         bool allowBandBrowse, bool voiceView)
+void drawSpectrum(App& app, Receiver& r, int idx, bool voiceView)
 {
-    ImGui::Begin(title);
+    (void)voiceView;
+    SpectrumView& v = r.view;
+    std::string title = std::string(_L("Spectrum")) + "###Spectrum" + std::to_string(idx);
+    ImGui::Begin(title.c_str());
     ImVec2 origin = ImGui::GetCursorScreenPos();
     float availW = ImGui::GetContentRegionAvail().x;
-    std::string plotId = std::string("##plot_") + title;
+    std::string plotId = std::string("##plot_") + std::to_string(idx);
     if (ImPlot::BeginPlot(plotId.c_str(), ImVec2(-1, -1), ImPlotFlags_NoLegend))
     {
         ImPlot::SetupAxes("MHz", "dB", 0, 0);
@@ -716,39 +472,30 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
             ImPlot::SetupAxisLimits(ImAxis_Y1, app.dbMin, app.dbMax, ImGuiCond_Always);
 
         if (v.curN > 0)
-        {
             ImPlot::PlotLine("PSD", v.freqMHz.data(), v.avg.data(), v.curN);
-        }
 
-        auto decs = mgr.status();
+        auto decs = r.decoders.status();
         for (auto& d : decs)
         {
             double x = d.freqMHz;
-            ImVec4 col = d.locked ? ImVec4(0.2f, 1.0f, 0.35f, 1.0f)   // green = locked
-                                  : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);  // orange = unlocked
+            ImVec4 col = d.locked ? ImVec4(0.2f, 1.0f, 0.35f, 1.0f)
+                                  : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);
             if (ImPlot::DragLineX(d.channelId, &x, col, 2.0f))
-                mgr.setDecoderFreq(d.channelId, x * 1e6);
+                r.decoders.setDecoderFreq(d.channelId, x * 1e6);
         }
 
         ImPlotRect lim = ImPlot::GetPlotLimits();
         v.viewXminMHz = lim.X.Min;
         v.viewXmaxMHz = lim.X.Max;
 
-        // Band-browse retuning: in dual mode use explicit SDR pointers,
-        // otherwise use app.active (which covers RTL/WAV/SDR++/HackRF).
-        SdrSource* browseSdr;
-        if (app.dualMode)
-            browseSdr = voiceView ? static_cast<SdrSource*>(&app.sdrB)
-                                  : static_cast<SdrSource*>(&app.sdr);
-        else
-            browseSdr = app.active;
-        if (allowBandBrowse && app.bandBrowse && app.sourceMode != 1 &&
-            browseSdr->running() && !v.resetView)
+        // Band-browse retuning.
+        if (app.bandBrowse && r.mode != kRxWav && r.src && r.src->running() &&
+            !v.resetView)
         {
             double viewCtr = 0.5 * (v.viewXminMHz + v.viewXmaxMHz);
             double viewHalf = 0.5 * (v.viewXmaxMHz - v.viewXminMHz);
-            double sdrCtr = browseSdr->centerFreq() / 1e6;
-            double fsMHz = browseSdr->sampleRate() / 1e6;
+            double sdrCtr = r.src->centerFreq() / 1e6;
+            double fsMHz = r.src->sampleRate() / 1e6;
             double halfBand = 0.5 * fsMHz;
             double marginL = (viewCtr - viewHalf) - (sdrCtr - halfBand);
             double marginR = (sdrCtr + halfBand) - (viewCtr + viewHalf);
@@ -756,27 +503,10 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
             double trigger = fsMHz * (app.browseEdgePct * 0.01);
             bool moved = std::fabs(viewCtr - app.lastRetuneCtr) > fsMHz * (app.browseMinMovePct * 0.01);
             auto now = std::chrono::steady_clock::now();
-            double sinceMs =
-                std::chrono::duration<double, std::milli>(now - app.lastRetune).count();
+            double sinceMs = std::chrono::duration<double, std::milli>(now - app.lastRetune).count();
             if (fsMHz > 0.0 && minMargin < trigger && moved && sinceMs > app.browseThrottleMs)
             {
-                if (voiceView)
-                {
-                    // Retune SDR B preserving decoders on manager B
-                    std::vector<std::pair<double, int>> keep;
-                    for (auto& s : app.decodersB.status())
-                        keep.push_back({s.freqMHz, s.baud});
-                    app.centerFreqMHzB = viewCtr;
-                    app.sdrB.setCenterFreq(viewCtr * 1e6);
-                    app.decodersB.removeAll();
-                    app.decodersB.configure(app.sdrB.sampleRate(), app.sdrB.centerFreq());
-                    for (auto& k : keep)
-                        app.decodersB.addDecoder(k.first * 1e6, k.second);
-                }
-                else
-                {
-                    retunePreserving(app, viewCtr);
-                }
+                retuneReceiver(r, viewCtr, true);
                 app.lastRetune = now;
                 app.lastRetuneCtr = viewCtr;
             }
@@ -790,70 +520,64 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
         if (bandValid)
             v.resetView = false;
 
-        // Drag-to-place decoder: Ctrl+mousedown starts placing, move shows a white
-        // preview line through the spectrum and waterfall, release creates the decoder.
+        // Drag-to-place decoder: Ctrl+mousedown starts placing, release creates it.
         if (ImPlot::IsPlotHovered() && ImGui::GetIO().KeyCtrl)
         {
             ImPlotPoint mp = ImPlot::GetPlotMousePos();
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
                 app.placingDecoder = true;
-                app.placingVoiceView = voiceView;
+                app.placingRx = idx;
                 app.placingFreqMHz = mp.x;
             }
-        if (app.placingDecoder && app.placingVoiceView == voiceView)
-            {
+            if (app.placingDecoder && app.placingRx == idx)
                 app.placingFreqMHz = mp.x;
-            }
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && app.placingDecoder)
             {
                 app.placingDecoder = false;
-                mgr.addDecoder(mp.x * 1e6, 1200);
+                r.decoders.addDecoder(mp.x * 1e6, app.newBaud > 0 ? app.newBaud : 1200);
             }
         }
-        else if (app.placingDecoder && app.placingVoiceView == voiceView)
+        else if (app.placingDecoder && app.placingRx == idx)
         {
-            // Ctrl released or cursor left the plot that started the placement.
             app.placingDecoder = false;
         }
 
-        // Drag-to-place preview line redraw
-        if (app.placingDecoder && app.placingVoiceView == voiceView)
+        if (app.placingDecoder && app.placingRx == idx)
         {
-            ImPlotRect lim = ImPlot::GetPlotLimits();
-            float xMin = (float)lim.X.Min;
-            float xMax = (float)lim.X.Max;
+            ImPlotRect lim2 = ImPlot::GetPlotLimits();
+            float xMin = (float)lim2.X.Min;
+            float xMax = (float)lim2.X.Max;
             if (xMax > xMin)
             {
                 float frac = ((float)app.placingFreqMHz - xMin) / (xMax - xMin);
-                ImVec2 pp = ImPlot::GetPlotPos();
-                ImVec2 ps = ImPlot::GetPlotSize();
-                float px = pp.x + frac * ps.x;
+                ImVec2 pp2 = ImPlot::GetPlotPos();
+                ImVec2 ps2 = ImPlot::GetPlotSize();
+                float px = pp2.x + frac * ps2.x;
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                dl->AddLine(ImVec2(px, pp.y), ImVec2(px, pp.y + ps.y),
+                dl->AddLine(ImVec2(px, pp2.y), ImVec2(px, pp2.y + ps2.y),
                             IM_COL32(255, 40, 40, 200), 1.5f);
             }
         }
 
-        // --- Band plan: solid coloured bar along the bottom ---
-        bool showBp = voiceView ? app.showBandPlanB : app.showBandPlan;
-        const BandPlan& bp = voiceView ? app.bandPlanLoadedB : app.bandPlanLoaded;
-        if (showBp && bp.valid && v.curN > 0)
+        // Band plan bar.
+        const BandPlan& bp = r.bandPlanLoaded;
+        if (r.showBandPlan && bp.valid && v.curN > 0)
         {
             const ImPlotRect vp = ImPlot::GetPlotLimits();
             double viewLo = vp.X.Min, viewHi = vp.X.Max;
             if (viewHi <= viewLo) { viewLo = v.freqMHz.front(); viewHi = v.freqMHz.back(); }
             auto* dl = ImPlot::GetPlotDrawList();
             constexpr float kBandH = 28.0f;
-            ImVec2 pp = ImPlot::GetPlotPos(), ps = ImPlot::GetPlotSize();
-            float bandTop = pp.y + ps.y - kBandH;
+            ImVec2 pp2 = ImPlot::GetPlotPos(), ps2 = ImPlot::GetPlotSize();
+            float bandTop = pp2.y + ps2.y - kBandH;
             float bandBot = bandTop + kBandH;
-            float pxPerMHz = (float)(ps.x / (viewHi - viewLo));
+            float pxPerMHz = (float)(ps2.x / (viewHi - viewLo));
             for (auto& e : bp.entries)
             {
                 if (e.hiMHz < viewLo || e.loMHz > viewHi) continue;
-                float loPx = pp.x + (float)((std::max(e.loMHz, viewLo) - viewLo) * pxPerMHz);
-                float hiPx = pp.x + (float)((std::min(e.hiMHz, viewHi) - viewLo) * pxPerMHz);
+                float loPx = pp2.x + (float)((std::max(e.loMHz, viewLo) - viewLo) * pxPerMHz);
+                float hiPx = pp2.x + (float)((std::min(e.hiMHz, viewHi) - viewLo) * pxPerMHz);
                 dl->AddRectFilled(ImVec2(loPx, bandTop), ImVec2(hiPx, bandBot), e.color);
                 float segW = hiPx - loPx;
                 if (segW > 50 && !e.label.empty())
@@ -875,10 +599,11 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
     ImGui::End();
 }
 
-void drawWaterfall(App& app, SpectrumView& v, const char* title)
+void drawWaterfall(App& app, Receiver& r, int idx)
 {
-    (void)app;
-    ImGui::Begin(title);
+    SpectrumView& v = r.view;
+    std::string title = std::string(_L("Waterfall")) + "###Waterfall" + std::to_string(idx);
+    ImGui::Begin(title.c_str());
 
     float uMin = 0.0f, uMax = 1.0f;
     float xLo = 0.0f, xHi = 1.0f;
@@ -921,9 +646,7 @@ void drawWaterfall(App& app, SpectrumView& v, const char* title)
     v.waterfall.draw(ImVec2(w, avail.y), uMin, uMax, xLo, xHi);
     v.fftSkip = false;
 
-    // Drag-to-place preview line: white vertical line through the waterfall
-    // at the frequency the user is hovering, so they can centre on a signal.
-    if (app.placingDecoder && app.placingVoiceView == (&v == &app.viewB) && v.curN > 0)
+    if (app.placingDecoder && app.placingRx == idx && v.curN > 0)
     {
         double bandMin = v.freqMHz.front();
         double bandMax = v.freqMHz.back();
@@ -949,94 +672,85 @@ void drawDecoders(App& app)
 {
     ImGui::Begin((std::string(_L("Decoders")) + "###Decoders").c_str());
 
-    auto decs = app.decoders.status();
-    if (app.dualMode)
+    struct Row { Receiver* r; DecoderManager::Status s; };
+    std::vector<Row> rows;
+    int subbands = 0, threads = 0;
+    uint64_t drops = 0;
+    for (auto& rp : app.rx)
     {
-        auto decsB = app.decodersB.status();
-        for (auto& d : decsB) d.isB = true;
-        decs.insert(decs.end(), decsB.begin(), decsB.end());
+        if (!rp) continue;
+        for (auto& s : rp->decoders.status())
+            rows.push_back({rp.get(), s});
+        subbands += rp->decoders.subbandCount();
+        threads += rp->decoders.workerCount();
+        drops += rp->decoders.drops();
     }
-    ImGui::Text("%d active  |  %d sub-band(s)  %d threads", (int)decs.size(),
-                app.decoders.subbandCount() + (app.dualMode ? app.decodersB.subbandCount() : 0),
-                app.decoders.workerCount() + (app.dualMode ? app.decodersB.workerCount() : 0));
-    uint64_t drops = app.decoders.drops() + (app.dualMode ? app.decodersB.drops() : 0);
+    ImGui::Text("%d active  |  %d sub-band(s)  %d threads", (int)rows.size(), subbands, threads);
     ImGui::SameLine();
     if (drops > 0)
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "  drops: %llu",
-                           (unsigned long long)drops);
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "  drops: %llu", (unsigned long long)drops);
     else
         ImGui::TextDisabled("  drops: 0");
     ImGui::SameLine();
     if (ImGui::SmallButton(_L("Remove all")))
-    {
-        app.decoders.removeAll();
-        if (app.dualMode) app.decodersB.removeAll();
-    }
+        for (auto& rp : app.rx) rp->decoders.removeAll();
     static std::string decsCopy;
     ImGui::SameLine();
     copyAllButton(decsCopy);
 
     if (ImGui::Checkbox(_L("CPU reduce"), &app.cpuReduce))
-    {
-        app.decoders.setCpuReduce(app.cpuReduce);
-        app.decodersB.setCpuReduce(app.cpuReduce);
-    }
+        for (auto& rp : app.rx) rp->decoders.setCpuReduce(app.cpuReduce);
 
-    // Audio output device picker (used by VHF voice in later phases).
     if (app.audioDevs.empty())
-        app.audioDevs = app.decoders.audioDevices();
+        app.audioDevs = app.rx.front()->decoders.audioDevices();
     {
         std::vector<const char*> names;
-        names.reserve(app.audioDevs.size());
-        for (auto& s : app.audioDevs)
-            names.push_back(s.c_str());
-        if (app.audioDevice >= (int)names.size())
-            app.audioDevice = 0;
+        for (auto& s : app.audioDevs) names.push_back(s.c_str());
+        if (app.audioDevice >= (int)names.size()) app.audioDevice = 0;
         ImGui::SetNextItemWidth(-90.0f);
         if (ImGui::Combo("Audio out", &app.audioDevice, names.data(), (int)names.size()))
-        {
-            app.decoders.setAudioDevice(app.audioDevice);
-            app.decodersB.setAudioDevice(app.audioDevice);
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Refresh##aud"))
-        {
-            app.audioDevs = app.decoders.audioDevices();
-            app.decodersB.audioDevices();
-        }
+            for (auto& rp : app.rx) rp->decoders.setAudioDevice(app.audioDevice);
     }
-
     ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
     ImGui::Separator();
 
-    if (ImGui::BeginTable("##decs", 5,
+    if (ImGui::BeginTable("##decs", 6,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
     {
+        ImGui::TableSetupColumn("Rx", ImGuiTableColumnFlags_WidthFixed, 26);
         ImGui::TableSetupColumn("Lock", ImGuiTableColumnFlags_WidthFixed, 44);
         ImGui::TableSetupColumn("Freq MHz");
         ImGui::TableSetupColumn("Baud");
-        ImGui::TableSetupColumn("Eb/N0");
         ImGui::TableSetupColumn("Msgs");
+        ImGui::TableSetupColumn("");
         ImGui::TableHeadersRow();
 
+        Receiver* toRemoveRx = nullptr;
         int toRemove = -1;
-        bool toRemoveB = false;
         std::vector<std::string> copyRows;
-        for (auto& d : decs)
+        for (auto& row : rows)
         {
-            int uid = d.channelId + (d.isB ? 100000 : 0);
+            auto& d = row.s;
+            std::string uid = std::to_string((uintptr_t)row.r) + "_" + std::to_string(d.channelId);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            char selid[24];
-            std::snprintf(selid, sizeof(selid), "##sel%d", uid);
+            ImGui::Text("%d", (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                    [&](const std::unique_ptr<Receiver>& p){ return p.get() == row.r; }) -
+                    app.rx.begin()) + 1);
+            ImGui::TableNextColumn();
             ImVec4 c = d.locked ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
                                 : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
             ImGui::PushStyleColor(ImGuiCol_Header, c);
             ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(c.x*1.3f, c.y*1.3f, c.z*1.3f, 1.0f));
-            bool sel = (app.selectedDecoder == d.channelId);
-            if (ImGui::Selectable(selid, sel, ImGuiSelectableFlags_None))
+            char selid[32];
+            std::snprintf(selid, sizeof(selid), "##sel_%s", uid.c_str());
+            if (ImGui::Selectable(selid, app.selectedDecoder == d.channelId))
+            {
                 app.selectedDecoder = d.channelId;
+                app.selectedRx = (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                    [&](const std::unique_ptr<Receiver>& p){ return p.get() == row.r; }) - app.rx.begin());
+            }
             ImGui::PopStyleColor(2);
             ImGui::SameLine();
             ImGui::TextColored(c, "%s", d.locked ? "LOCK" : "--");
@@ -1045,29 +759,23 @@ void drawDecoders(App& app)
             ImGui::TableNextColumn();
             ImGui::Text("%d", d.baud);
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f", d.ebno);
-            ImGui::TableNextColumn();
             ImGui::Text("%llu", (unsigned long long)d.msgs);
-            copyRows.push_back(copyFmt("%.4f\t%d\t%.1f\t%llu", d.freqMHz, d.baud, d.ebno,
-                (unsigned long long)d.msgs));
-
-            ImGui::SameLine();
-            char btn[24];
-            std::snprintf(btn, sizeof(btn), "X##%d", uid);
+            ImGui::TableNextColumn();
+            char btn[32];
+            std::snprintf(btn, sizeof(btn), "X##%s", uid.c_str());
             if (ImGui::SmallButton(btn))
             {
+                toRemoveRx = row.r;
                 toRemove = d.channelId;
-                toRemoveB = d.isB;
             }
+            copyRows.push_back(copyFmt("%.4f\t%d\t%llu", d.freqMHz, d.baud,
+                (unsigned long long)d.msgs));
         }
         handleTableCopy(copyRows);
         decsCopy = copyJoin(copyRows);
         ImGui::EndTable();
-        if (toRemove >= 0)
-        {
-            if (toRemoveB) app.decodersB.removeDecoder(toRemove);
-            else           app.decoders.removeDecoder(toRemove);
-        }
+        if (toRemoveRx && toRemove >= 0)
+            toRemoveRx->decoders.removeDecoder(toRemove);
     }
 
     ImGui::End();
@@ -1077,15 +785,12 @@ void drawMessages(App& app)
 {
     ImGui::Begin((std::string(_L("Messages")) + "###Messages").c_str());
 
-    unsigned long long msgTotal = app.decoders.log().count();
-    if (app.dualMode) msgTotal += app.decodersB.log().count();
+    unsigned long long msgTotal = 0;
+    for (auto& rp : app.rx) msgTotal += rp->decoders.log().count();
     ImGui::Text("%llu total", msgTotal);
     ImGui::SameLine();
     if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.log().clear();
-        if (app.dualMode) app.decodersB.log().clear();
-    }
+        for (auto& rp : app.rx) rp->decoders.log().clear();
     static std::string msgCopy;
     ImGui::SameLine();
     copyAllButton(msgCopy);
@@ -1115,37 +820,32 @@ void drawMessages(App& app)
         {
             std::vector<const char*> items;
             items.push_back("Live");
-            for (auto& lbl : app.archiveDbLabels)
-                items.push_back(lbl.c_str());
+            for (auto& lbl : app.archiveDbLabels) items.push_back(lbl.c_str());
             ImGui::SetNextItemWidth(200);
             if (ImGui::Combo("Session", &app.archiveComboMsg, items.data(), (int)items.size()))
             {
+                auto& log = app.rx.front()->decoders.log();
                 if (app.archiveComboMsg == 0)
-                {
-                    app.decoders.log().clearArchive();
-                }
+                    log.clearArchive();
                 else
                 {
                     int idx = app.archiveComboMsg - 1;
                     if (idx < (int)app.archiveDbPaths.size())
-                        app.writeDb.loadAcarsOrSu(app.archiveDbPaths[idx],
-                                                  MessageStore::ACARS,
-                                                  &app.decoders.log(), 0);
+                        app.writeDb.loadAcarsOrSu(app.archiveDbPaths[idx], MessageStore::ACARS, &log, 0);
                 }
             }
-            if (app.decoders.log().hasArchive())
+            if (app.rx.front()->decoders.log().hasArchive())
                 ImGui::TextDisabled("  Viewing archived session");
         }
     }
     ImGui::Separator();
 
-    auto msgs = app.decoders.log().snapshot();
-    if (app.dualMode)
+    std::vector<DecodedMessage> msgs;
+    for (auto& rp : app.rx)
     {
-        auto b = app.decodersB.log().snapshot();
+        auto b = rp->decoders.log().snapshot();
         msgs.insert(msgs.end(), b.begin(), b.end());
     }
-    // Filter on search text (case-insensitive substring across all fields).
     std::string searchLower;
     bool hasSearch = (app.searchBuf[0] != 0);
     if (hasSearch)
@@ -1171,10 +871,8 @@ void drawMessages(App& app)
         std::vector<std::string> copyRows;
         for (auto it = msgs.rbegin(); it != msgs.rend(); ++it)
         {
-            // Hide empty ACARS messages (no text and no decoded body) unless shown.
             if (!app.showEmptyMsgs && it->text.empty() && it->decoded.empty())
                 continue;
-            // Search filter — match any field (case-insensitive).
             if (hasSearch)
             {
                 std::string hay = it->text + "|" + it->hex + "|" + it->reg + "|"
@@ -1186,7 +884,6 @@ void drawMessages(App& app)
             ImGui::TableNextRow();
             ImGui::PushID(rowIdx++);
             ImGui::TableNextColumn();
-            // UTC time from epoch seconds
             {
                 time_t t = (time_t)it->timeSec;
                 std::tm tm{};
@@ -1233,11 +930,7 @@ void drawMessages(App& app)
                                       utc, it->freqMHz, it->downlink ? "DL" : "UL",
                                       it->reg.c_str(), it->aesId, it->label.c_str(),
                                       it->text.c_str());
-            if (!it->decoded.empty())
-            {
-                row += '\n';
-                row += it->decoded;
-            }
+            if (!it->decoded.empty()) { row += '\n'; row += it->decoded; }
             copyRows.push_back(std::move(row));
             ImGui::PopID();
         }
@@ -1253,11 +946,16 @@ void drawAircraft(App& app)
 {
     ImGui::Begin((std::string(_L("Aircraft")) + "###Aircraft").c_str());
 
-    auto acs = app.decoders.aircraftTable().snapshot();
+    std::vector<AircraftEntry> acs;
+    for (auto& rp : app.rx)
+    {
+        auto b = rp->decoders.aircraftTable().snapshot();
+        acs.insert(acs.end(), b.begin(), b.end());
+    }
     ImGui::Text("%zu tracked", acs.size());
     ImGui::SameLine();
     if (ImGui::SmallButton(_L("Clear")))
-        app.decoders.aircraftTable().clear();
+        for (auto& rp : app.rx) rp->decoders.aircraftTable().clear();
     static std::string acCopy;
     ImGui::SameLine();
     copyAllButton(acCopy);
@@ -1266,7 +964,6 @@ void drawAircraft(App& app)
     ImGui::Separator();
 
     double now = (double)std::time(nullptr);
-    // Newest activity first.
     std::sort(acs.begin(), acs.end(),
               [](const AircraftEntry& a, const AircraftEntry& b) { return a.lastSeen > b.lastSeen; });
 
@@ -1340,22 +1037,18 @@ void drawFlightMap(App& app)
 {
     ImGui::Begin((std::string(_L("Flight Map")) + "###Flight Map").c_str());
 
-    auto acs = app.decoders.aircraftTable().snapshot();
-    std::sort(acs.begin(), acs.end(),
-              [](const AircraftEntry& a, const AircraftEntry& b) { return a.lastSeen > b.lastSeen; });
     const AircraftEntry* pick = nullptr;
-
-    if (!pick) {
-        for (auto& a : acs)
-            if (!a.icao.empty()) { pick = &a; break; }
+    for (auto& rp : app.rx)
+    {
+        for (auto& a : rp->decoders.aircraftTable().snapshot())
+            if (!a.icao.empty()) { static AircraftEntry keep; keep = a; pick = &keep; break; }
+        if (pick) break;
     }
 
     if (pick && !app.flightMapWv.isReady())
     {
-        ImGui::Text("%s  %s  %06X",
-                    pick->icao.c_str(),
-                    pick->flight.empty() ? pick->reg.c_str() : pick->flight.c_str(),
-                    pick->aesId);
+        ImGui::Text("%s  %s  %06X", pick->icao.c_str(),
+                    pick->flight.empty() ? pick->reg.c_str() : pick->flight.c_str(), pick->aesId);
         if (pick->hasPos)
             ImGui::SameLine(); ImGui::Text("  %.4f,%.4f  %d ft", pick->lat, pick->lon, pick->alt);
     }
@@ -1363,13 +1056,9 @@ void drawFlightMap(App& app)
     {
         ImGui::TextDisabled("No aircraft with ICAO yet.");
     }
-
     if (!app.flightMapWv.isReady())
-    {
         ImGui::TextDisabled("  Loading map...");
-    }
-    // Embed the map as an Edge WebView2 child window inside this panel.
-    // Hide when another tab in the same dock is active.
+
     ImVec2 pos  = ImGui::GetCursorScreenPos();
     ImVec2 avail = ImGui::GetContentRegionAvail();
     int w = std::max(1, (int)avail.x);
@@ -1398,8 +1087,6 @@ void drawFlightMap(App& app)
     ImGui::End();
 }
 #else
-// The Flight Map is an embedded Edge WebView2 browser, which only exists on
-// Windows. On other platforms the panel is not registered or drawn at all.
 void drawFlightMap(App&) {}
 #endif // _WIN32
 
@@ -1413,84 +1100,64 @@ void drawConstellation(App& app)
 {
     ImGui::Begin((std::string(_L("Constellation")) + "###Constellation").c_str());
 
-    auto decs = app.decoders.status();
-    if (app.dualMode)
+    struct Row { Receiver* r; DecoderManager::Status s; };
+    std::vector<Row> rows;
+    for (auto& rp : app.rx)
     {
-        auto decsB = app.decodersB.status();
-        for (auto& d : decsB) d.isB = true;
-        decs.insert(decs.end(), decsB.begin(), decsB.end());
-    }
-    int chan = app.selectedDecoder;
-    bool valid = false;
-    double freq = 0.0;
-    for (auto& d : decs)
-        if (d.channelId == chan)
-        {
-            valid = true;
-            freq = d.freqMHz;
-            break;
-        }
-    if (!valid && !decs.empty())
-    {
-        chan = decs.front().channelId;
-        freq = decs.front().freqMHz;
+        if (!rp) continue;
+        for (auto& s : rp->decoders.status())
+            rows.push_back({rp.get(), s});
     }
 
-    if (decs.empty())
+    int chan = app.selectedDecoder;
+    Receiver* sel = nullptr;
+    double freq = 0.0;
+    int preBaud = 0;
+    for (auto& row : rows)
+        if (row.s.channelId == chan && (sel == nullptr ||
+            row.r == (app.selectedRx < (int)app.rx.size() ? app.rx[app.selectedRx].get() : nullptr)))
+        { sel = row.r; freq = row.s.freqMHz; preBaud = row.s.baud; break; }
+    if (!sel && !rows.empty()) { sel = rows.front().r; chan = rows.front().s.channelId;
+        freq = rows.front().s.freqMHz; preBaud = rows.front().s.baud; }
+
+    if (rows.empty())
     {
         ImGui::TextDisabled("No decoders. Ctrl+click the spectrum to add one.");
         ImGui::End();
         return;
     }
 
-    // Decoder selector (also selectable by clicking a row in Decoders panel).
-    int preBaud = 0;
-    bool preIsB = false;
-    for (auto& d : decs)
-    {
-        if (d.channelId == chan)
-        {
-            preBaud = d.baud;
-            preIsB = d.isB;
-            break;
-        }
-    }
     char preview[128];
-    std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  @%d%s",
-                  chan, freq, preBaud, preIsB ? " [B]" : "");
+    std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  @%d", chan, freq, preBaud);
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("Decoder", preview))
     {
-        for (auto& d : decs)
+        for (auto& row : rows)
         {
             char label[64];
-            std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  @%d%s",
-                          d.channelId, d.freqMHz, d.baud,
-                              d.isB ? " [B]" : "");
-            if (ImGui::Selectable(label, d.channelId == chan))
+            std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  @%d",
+                          row.s.channelId, row.s.freqMHz, row.s.baud);
+            if (ImGui::Selectable(label, row.s.channelId == chan && row.r == sel))
             {
-                app.selectedDecoder = d.channelId;
-                chan = d.channelId;
-                freq = d.freqMHz;
+                app.selectedDecoder = row.s.channelId;
+                chan = row.s.channelId;
+                sel = row.r;
             }
         }
         ImGui::EndCombo();
     }
 
-    int pairs = app.decoders.getConstellation(chan, app.constBuf, 1024);
-    if (pairs == 0 && app.dualMode)
-        pairs = app.decodersB.getConstellation(chan, app.constBuf, 1024);
+    int pairs = 0;
+    if (sel)
+        pairs = sel->decoders.getConstellation(chan, app.constBuf, 1024);
     ImGui::SameLine();
     ImGui::TextDisabled("(%d pts)", pairs);
 
-    // Recompute the axis scale at most once per second so it holds steady
-    // instead of jittering as the constellation data changes every frame.
     auto nowC = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(nowC - app.constLimTime).count() >= 1.0)
     {
         float m = 0.5f;
-        for (float v : app.constBuf)
-            m = std::max(m, std::fabs(v));
+        for (float v : app.constBuf) m = std::max(m, std::fabs(v));
         app.constLim = m * 1.15;
         app.constLimTime = nowC;
     }
@@ -1511,46 +1178,36 @@ void drawConstellation(App& app)
     ImGui::End();
 }
 
-// ---------------------------------------------------------------------------
-// Voice Calls browser
-// ---------------------------------------------------------------------------
-
 void drawVoiceCalls(App& app)
 {
     ImGui::Begin((std::string(_L("Voice Calls")) + "###Voice Calls").c_str());
 
-    auto calls = app.decoders.voiceCallLog().snapshot();
-    if (app.dualMode)
+    std::vector<VoiceCallRecord> calls;
+    uint64_t total = 0;
+    for (auto& rp : app.rx)
     {
-        auto b = app.decodersB.voiceCallLog().snapshot();
+        auto b = rp->decoders.voiceCallLog().snapshot();
         calls.insert(calls.end(), b.begin(), b.end());
+        total += rp->decoders.voiceCallLog().count();
     }
-    // Sort newest first
     std::sort(calls.begin(), calls.end(),
               [](const VoiceCallRecord& a, const VoiceCallRecord& b) { return a.timeSec > b.timeSec; });
 
-    ImGui::Text("%llu calls", (unsigned long long)app.decoders.voiceCallLog().count() +
-                               (app.dualMode ? app.decodersB.voiceCallLog().count() : 0));
+    ImGui::Text("%llu calls", (unsigned long long)total);
     ImGui::SameLine();
     if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.voiceCallLog().clear();
-        if (app.dualMode) app.decodersB.voiceCallLog().clear();
-    }
+        for (auto& rp : app.rx) rp->decoders.voiceCallLog().clear();
     static std::string vcCopy;
     ImGui::SameLine();
     copyAllButton(vcCopy);
     ImGui::SameLine();
     if (ImGui::SmallButton("Rescan"))
-    {
-        app.decoders.voiceCallLog().scanDir(app.recordDir);
-        if (app.dualMode) app.decodersB.voiceCallLog().scanDir(app.recordDir);
-    }
+        for (auto& rp : app.rx) rp->decoders.voiceCallLog().scanDir(app.recordDir);
     ImGui::SameLine();
 
-    // Playback status
     if (app.audioPlayer.isPlaying())
-        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "  Playing... %.0fs", (double)app.audioPlayer.positionSec());
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.4f, 1.0f), "  Playing... %.0fs",
+                           (double)app.audioPlayer.positionSec());
     else
         ImGui::TextDisabled("  Idle");
 
@@ -1572,7 +1229,6 @@ void drawVoiceCalls(App& app)
         {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            // Time
             time_t t = (time_t)c.timeSec;
             std::tm tm{};
 #if defined(_WIN32)
@@ -1581,10 +1237,8 @@ void drawVoiceCalls(App& app)
             localtime_r(&t, &tm);
 #endif
             ImGui::Text("%02d:%02d:%02d", tm.tm_hour, tm.tm_min, tm.tm_sec);
-
             ImGui::TableNextColumn();
             ImGui::Text("%.4f", c.freqMHz);
-
             ImGui::TableNextColumn();
             if (!c.icao.empty())
                 ImGui::TextColored(Lc(app, ImVec4(1.0f, 0.85f, 0.3f, 1.0f)), "%s", c.icao.c_str());
@@ -1592,15 +1246,9 @@ void drawVoiceCalls(App& app)
                 ImGui::TextDisabled("%06X", c.aesId);
             else
                 ImGui::TextUnformatted("--");
-
             ImGui::TableNextColumn();
-            // Duration
             if (c.recording)
-            {
-                double nowSec = (double)std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-                double liveDur = (nowSec > c.timeSec) ? (nowSec - c.timeSec) : 0.0;
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Rec %.0fs", liveDur);
-            }
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Rec");
             else if (c.durationSec > 0.0)
             {
                 int m = (int)c.durationSec / 60;
@@ -1609,9 +1257,7 @@ void drawVoiceCalls(App& app)
             }
             else
                 ImGui::TextUnformatted("--");
-
             ImGui::TableNextColumn();
-            // Play button — use row index for unique ImGui ID across A/B merge.
             bool sel = app.audioPlayer.isPlaying() && !c.filename.empty() &&
                        app.audioPlayer.currentPath().find(c.filename) != std::string::npos;
             char label[24];
@@ -1621,10 +1267,7 @@ void drawVoiceCalls(App& app)
                 if (sel)
                     app.audioPlayer.stop();
                 else if (!c.filename.empty())
-                {
-                    std::string fullPath = std::string(app.recordDir) + "/" + c.filename;
-                    app.audioPlayer.play(fullPath);
-                }
+                    app.audioPlayer.play(std::string(app.recordDir) + "/" + c.filename);
             }
             copyRows.push_back(copyFmt("%02d:%02d:%02d\t%.4f\t%s\t%s",
                 tm.tm_hour, tm.tm_min, tm.tm_sec, c.freqMHz,
@@ -1639,10 +1282,6 @@ void drawVoiceCalls(App& app)
 
     ImGui::End();
 }
-
-// ---------------------------------------------------------------------------
-// About dialog
-// ---------------------------------------------------------------------------
 
 void drawAbout(App& app)
 {
@@ -1670,21 +1309,10 @@ void drawAbout(App& app)
     ImGui::End();
 }
 
-// ---------------------------------------------------------------------------
-// Persistent settings: serialized into airscope.ini alongside the ImGui dock
-// layout via a custom settings handler.
-// ---------------------------------------------------------------------------
-
 void drawDockHost(App& app)
 {
-    // Default to NOT forcing a rebuild: if airscope.ini holds a saved layout,
-    // the dock node already exists and we keep it. Only build the default layout
-    // on first run (no node) or when explicitly forced (Reset Layout / dual /
-    // a layout-version bump).
     static bool forceLayout = false;
     if (app.forceDefaultLayout) { forceLayout = true; app.forceDefaultLayout = false; }
-    static bool lastDual = false;
-    if (app.dualMode != lastDual) { forceLayout = true; lastDual = app.dualMode; }
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(vp->WorkPos);
@@ -1713,32 +1341,27 @@ void drawDockHost(App& app)
         ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockId, vp->WorkSize);
 
-        ImGuiID left, right, rtop, rrest, rmid, rbot, rcon, ctrl, dec;
+        ImGuiID left, right, rtop, rmid, rbot, rcon, ctrl, dec;
         ImGui::DockBuilderSplitNode(dockId, ImGuiDir_Left, 0.32f, &left, &right);
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.62f, &ctrl, &dec);
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.30f, &rtop, &rrest);
-        ImGui::DockBuilderSplitNode(rrest, ImGuiDir_Up, 0.58f, &rmid, &rbot);
+        ImGui::DockBuilderSplitNode(left, ImGuiDir_Up, 0.68f, &ctrl, &dec);
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Up, 0.55f, &rtop, &rbot);
+        ImGui::DockBuilderSplitNode(rtop, ImGuiDir_Up, 0.55f, &rtop, &rmid);
         ImGui::DockBuilderSplitNode(rbot, ImGuiDir_Right, 0.34f, &rcon, &rbot);
 
         ImGui::DockBuilderDockWindow((std::string(_L("Control")) + "###Control").c_str(), ctrl);
         ImGui::DockBuilderDockWindow((std::string(_L("Decoders")) + "###Decoders").c_str(), dec);
 
-        ImGui::DockBuilderDockWindow((std::string(_L("Spectrum")) + "###Spectrum").c_str(), rtop);
-        ImGui::DockBuilderDockWindow((std::string(_L("Waterfall")) + "###Waterfall").c_str(), rmid);
-        // Always split for potential dual-mode: B windows are invisible when
-        // not in dual mode, and the A windows fill the space.
+        int disp = 0;
+        for (size_t i = 0; i < app.rx.size(); ++i)
         {
-            ImGuiID rtopR, rmidR;
-            ImGui::DockBuilderSplitNode(rtop, ImGuiDir_Right, 0.5f, &rtopR, &rtop);
-            ImGui::DockBuilderSplitNode(rmid, ImGuiDir_Right, 0.5f, &rmidR, &rmid);
-            ImGui::DockBuilderDockWindow((std::string(_L("Spectrum")) + "###Spectrum").c_str(), rtop);
-            ImGui::DockBuilderDockWindow((std::string(_L("Waterfall")) + "###Waterfall").c_str(), rmid);
-            ImGui::DockBuilderDockWindow((std::string(_L("Spectrum (B)")) + "###Spectrum (B)").c_str(), rtopR);
-            ImGui::DockBuilderDockWindow((std::string(_L("Waterfall (B)")) + "###Waterfall (B)").c_str(), rmidR);
+            if (!app.rx[i]->showSpectrum) continue;
+            std::string st = std::string(_L("Spectrum")) + "###Spectrum" + std::to_string(i);
+            std::string wt = std::string(_L("Waterfall")) + "###Waterfall" + std::to_string(i);
+            ImGui::DockBuilderDockWindow(st.c_str(), rtop);
+            ImGui::DockBuilderDockWindow(wt.c_str(), rmid);
+            ++disp;
         }
-#if defined(_WIN32)
-        ImGui::DockBuilderDockWindow((std::string(_L("Flight Map")) + "###Flight Map").c_str(), rmid);
-#endif
+        (void)disp;
         ImGui::DockBuilderDockWindow((std::string(_L("Messages")) + "###Messages").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Aircraft")) + "###Aircraft").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Voice Calls")) + "###Voice Calls").c_str(), rbot);
@@ -1781,4 +1404,3 @@ void drawDockHost(App& app)
 
     ImGui::End();
 }
-

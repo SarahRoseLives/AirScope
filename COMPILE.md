@@ -185,6 +185,13 @@ Install `libairspy-dev` (Debian/Ubuntu), `airspy` (Arch), or `airspy-devel`
 (Fedora). The build enables Airspy (`HAS_AIRSPY=1`) automatically when libairspy
 is found by CMake.
 
+### Optional: SDRplay support
+
+Install the SDRplay API 3.x (`libsdrplay_api` + the `sdrplay` service).
+Headers are found in `/usr/include` and the library is linked automatically
+(`HAS_SDRPLAY=1`) when `sdrplay_api.h` and `libsdrplay_api` are present.
+The `sdrplay` service must be running to open an RSP device.
+
 ## 2. Configure and build
 
 ```bash

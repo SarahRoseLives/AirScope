@@ -19,10 +19,10 @@ Only the voice receiver needs an interactive spectrum/waterfall; ACARS can ride
 along on an Airspy, and the 1090 receiver never moves.
 
 > Status: **early development.** The inherited InmarScope codebase is being
-> retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed,
-> leaving the SDR sources, UI shell, DDC/sub-band engine, audio, recording,
-> map, SQLite, web dashboard and SBS feed. The VHF ACARS, AM voice, and
-> ADS-B paths are being ported in phases.
+> retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed, and
+> the source layer now runs several receivers concurrently (RTL-SDR, Airspy,
+> SDRplay and WAV). The VHF ACARS, AM voice, and ADS-B decoders are being
+> ported in phases.
 
 ## Planned features
 

@@ -1,96 +1,35 @@
-// AirScope shared application state — App struct, spectrum state, and constants.
+// AirScope shared application state — App struct and global constants.
+// Per-receiver state (source, spectrum view, decoders, tuning) lives in
+// Receiver (receiver/receiver.h); App holds the receiver set and global UI,
+// output, storage and audio settings.
 #pragma once
 
-#include "dsp/iq_ring.h"
-#include "dsp/jfft.h"
-#include "gui/waterfall.h"
-#include "sdr/rtl_sdr_source.h"
-#ifdef HAS_AIRSPY
-#include "sdr/airspy_source.h"
-#endif
-#include "sdr/wav_file_source.h"
+#include "receiver/receiver.h"
 #include "sdr/iq_recorder.h"
 #include "audio/audio_player.h"
 #include "web/web_server.h"
 #include "store/message_store.h"
 #include "decode/band_plan.h"
-#include "decode/decoder_manager.h"
 #include "output/message_feed.h"
 #include "update/version_check.h"
 #include "web/flight_map_webview.h"
 
 #include <chrono>
+#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
-
-struct SpectrumView
-{
-    IqRing ring{1u << 21};
-    JFFT   fft;
-    Waterfall waterfall;
-    std::vector<std::complex<double>> iq;
-    std::vector<double> window;
-    std::vector<float> inst;
-    std::vector<float> avg;
-    std::vector<float> sortbuf;
-    std::vector<float> freqMHz;
-    int   curN = 0;
-    float rmsDbfs = -120.0f;
-    float frameDbMin = 0.0f, frameDbMax = -120.0f;
-    double viewXminMHz = 0.0, viewXmaxMHz = 0.0;
-    bool   resetView = true;
-    float  specLeftInset = 0.0f, specRightInset = 0.0f;
-    bool   fftSkip = false; // set by draw functions when panel is visible, read by processFft next frame
-};
 
 struct App
 {
-    RtlSdrSource    sdr;
-    WavFileSource   wav;
-#ifdef HAS_AIRSPY
-    AirspySource    airspy;
-#endif
-    SdrSource*      active = &sdr;
-    int  sourceMode = 0; // 0=RTL, 1=WAV, 4=Dual RTL, 5=Airspy
-    char wavPath[512] = "";
-    bool wavLoop = true;
-
-    // Airspy
-#ifdef HAS_AIRSPY
-    int    airspySampleRateIdx = 3;  // index into kAirspyRates (3 = 10 MHz)
-    int    airspyGainMode = 0;      // 0=Sensitivity, 1=Linear, 2=Free
-    int    airspySenseGain = 10;    // 0-21
-    int    airspyLinearGain = 10;   // 0-21
-    int    airspyLnaGain = 8;       // 0-15
-    int    airspyMixerGain = 8;     // 0-15
-    int    airspyVgaGain = 4;       // 0-15
-    bool   airspyLnaAgc = false;
-    bool   airspyMixerAgc = false;
-    bool   airspyBias = false;
-#endif
-
-    SpectrumView     viewA;
-    SpectrumView     viewB;
-    DecoderManager   decoders;
-    DecoderManager   decodersB;
-    RtlSdrSource     sdrB;
-
-    // Dual-SDR
-    bool   dualMode = false;
-    int    deviceIndexB = 1;
-    double centerFreqMHzB = 1545.0;
-    int    sampleRateIdxB = 2;  // 1.024 MHz (lower CPU in dual mode)
-    bool   autoGainB = false;
-    float  gainDbB = 40.0f;
-    bool   biasTeeB = false;
-    float  ppmB = 0.0f;
+    // Concurrent receivers (e.g. Airspy voice + SDRplay ACARS + RTL ADS-B).
+    std::vector<std::unique_ptr<Receiver>> rx;
 
     int  newBaud = 1;
     bool placingDecoder = false;
-    bool placingVoiceView = false; // true = started on voice SDR, false = primary
+    int  placingRx = 0;
     double placingFreqMHz = 0.0;
     int  selectedDecoder = -1;
+    int  selectedRx = 0;
     std::vector<float> constBuf;
     double constLim = 1.0;
     std::chrono::steady_clock::time_point constLimTime;
@@ -99,9 +38,7 @@ struct App
     bool recordVoice = false;
     int  recordFormat = 0; // 0=WAV, 1=OGG
     char recordDir[256] = "recordings";
-    bool saveDecoders = false; // save decoders in INI for restart
-    std::vector<std::pair<double,int>> savedDecoders;  // freqMHz, baud  (spectrum A)
-    std::vector<std::pair<double,int>> savedDecodersB; // freqMHz, baud  (spectrum B)
+    bool saveDecoders = false;
 
     // Country blacklist — aircraft from these 2-letter country codes will not
     // be monitored.
@@ -110,7 +47,7 @@ struct App
     // IQ recorder
     IqRecorder iqRecorder;
     char iqRecPath[512] = "iq_record.wav";
-    float iqBufferSec = 10.0f;  // IQ pre-buffer seconds (0 = disabled)
+    float iqBufferSec = 10.0f;
 
     int  audioDevice = 0;
     bool voiceMuted = false;
@@ -126,7 +63,6 @@ struct App
     MessageFeed feed;
     VersionCheck verCheck;
     FlightMapWebView flightMapWv;
-    uint64_t lastAcarsFed = 0;
     bool   outFile = false;
     char   outFilePath[512] = "messages.jsonl";
     bool   outUdp = false;
@@ -137,16 +73,6 @@ struct App
     bool   outSbs = false;
     char   outSbsHost[128] = "127.0.0.1";
     int    outSbsPort = 30003;
-
-    std::vector<SdrDeviceInfo> devices;
-    int deviceIndex = 0;
-
-    double centerFreqMHz = 1545.0;
-    int    sampleRateIdx = 9;
-    bool   autoGain = false;
-    float  gainDb = 40.0f;
-    bool   biasTee = false;
-    float  ppm = 0.0f;
 
     int   fftSizeIdx = 2;
     float avgAlpha = 0.6f;
@@ -165,14 +91,8 @@ struct App
     float  browseMinMovePct = 0.10f;
     bool   acPosOnly = false;
     bool   showEmptyMsgs = false;
-    bool   showBandPlan = false;
-    bool   showBandPlanB = false;
     std::vector<std::string> bandPlanNames;  // display names (shared)
     std::vector<std::string> bandPlanPaths;  // full file paths (shared)
-    int    bandPlanIdx = 0;
-    int    bandPlanIdxB = 0;
-    BandPlan bandPlanLoaded;
-    BandPlan bandPlanLoadedB;
     char   bandPlanDir[256] = "bandplans";
 
     // Persistent message store (SQLite) — per-session, opt-in.
@@ -184,24 +104,16 @@ struct App
     std::vector<std::string> archiveDbPaths;
     std::vector<std::string> archiveDbLabels;
     double                  archiveDbLastScan = 0.0;
-    int    archiveComboMsg = 0;  // Messages panel session combo
+    int    archiveComboMsg = 0;
 
     // Shared search buffer for the Messages panel.
     char searchBuf[128] = {};
 
     int  layoutVersion = 0;
     bool forceDefaultLayout = false;
-
-    // Font size (pt), persisted — requires restart to take effect.
     int  fontSize = 17;
-
-    // UI theme: dark (default) or light.
     bool lightMode = false;
-
-    // Language index (0 = English).  Persisted, applied at next startup.
     int  languageIdx = 0;
-
-    double lastConfiguredFs = 0.0;
 };
 
 // ---- shared constants ----
@@ -223,4 +135,4 @@ constexpr const char* kFftLabels[] = {"1024", "2048", "4096", "8192", "16384", "
 constexpr int kNumFftSizes = (int)(sizeof(kFftSizes) / sizeof(kFftSizes[0]));
 
 // Dock layout version: bump when the built-in default layout changes.
-constexpr int kLayoutVersion = 13;
+constexpr int kLayoutVersion = 14;

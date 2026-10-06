@@ -4,9 +4,9 @@
 #include <atomic>
 #include <string>
 #include <thread>
+#include <vector>
 
-class DecoderManager;
-class SdrSource;
+struct Receiver;
 
 class WebServer
 {
@@ -18,10 +18,7 @@ public:
     bool running() const { return running_.load(); }
 
     // Data providers set by main thread before start.
-    DecoderManager* decodersA = nullptr;
-    DecoderManager* decodersB = nullptr;
-    bool*           dualMode = nullptr;
-    SdrSource**     active = nullptr;
+    std::vector<Receiver*> receivers;
 
 private:
     void serve(int port);

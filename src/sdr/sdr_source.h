@@ -30,6 +30,7 @@ public:
     virtual void setGain(double db) = 0;      // <0 => auto/AGC
     virtual void setBiasTee(bool on) = 0;
     virtual void setPpm(double ppm) = 0;
+    virtual void setDcBlock(bool on) { (void)on; }
 
     virtual double centerFreq() const = 0;
     virtual double sampleRate() const = 0;

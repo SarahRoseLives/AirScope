@@ -1,5 +1,4 @@
 // AirScope - VHF airband ACARS / voice + 1090 ADSB receiver
-// Phase 1: RTL-SDR -> IQ ring -> FFT -> spectrum + scrolling waterfall.
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -14,23 +13,14 @@
 #endif
 
 #include "core/app.h"
-#include "decode/icao_country.h"
+#include "core/main_funcs.h"
 #include "i18n/i18n.h"
-#include "util/log.h"
 #include "version.h"
 #include "gui/waterfall.h"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <complex>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <string>
-#include <thread>
-#include <utility>
-#include <vector>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -50,7 +40,6 @@ bool openWavDialog(char* out, int outLen)
     ofn.lpstrFile = file;
     ofn.nMaxFile = sizeof(file);
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    ofn.lpstrInitialDir = "D:\\";
     if (GetOpenFileNameA(&ofn))
     {
         std::strncpy(out, file, outLen - 1);
@@ -60,11 +49,7 @@ bool openWavDialog(char* out, int outLen)
     return false;
 }
 #else
-#include <cstdio>
-#include <cstring>
-
 // Native file picker via the desktop's dialog helper (zenity / kdialog / qarma).
-// These ship with GNOME/KDE and most distros; avoids adding a GUI toolkit dep.
 bool openWavDialog(char* out, int outLen)
 {
     const char* cmds[] = {
@@ -85,15 +70,13 @@ bool openWavDialog(char* out, int outLen)
         char buf[1024] = "";
         char* got = std::fgets(buf, sizeof(buf), p);
         int rc = pclose(p);
-        // 127 == shell couldn't find the helper; try the next one.
         if (rc == 127 || !got)
             continue;
-        // Strip trailing newline.
         size_t n = std::strlen(buf);
         while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
             buf[--n] = 0;
         if (n == 0)
-            return false; // helper ran, user cancelled
+            return false;
         std::strncpy(out, buf, outLen - 1);
         out[outLen - 1] = 0;
         return true;
@@ -107,14 +90,9 @@ static void glfw_error_callback(int error, const char* description)
     std::fprintf(stderr, "GLFW error %d: %s\n", error, description);
 }
 
-
-#include "core/app.h"
-#include "core/main_funcs.h"
-
 int main(int, char**)
 {
 #if defined(_WIN32)
-    // WebView2 requires STA — init before GLFW so the UI thread IS the STA thread.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 #endif
     glfwSetErrorCallback(glfw_error_callback);
@@ -132,48 +110,6 @@ int main(int, char**)
         return 1;
     }
 
-#if defined(_WIN32)
-	using RegisterTouchpadCapableThreadFn = BOOL (WINAPI *)(BOOL);
-
-	HMODULE user32 = GetModuleHandleW(L"user32.dll");
-	auto pRegisterTouchpadCapableThread =
-		reinterpret_cast<RegisterTouchpadCapableThreadFn>(
-			GetProcAddress(user32, "RegisterTouchpadCapableThread"));
-
-	if (pRegisterTouchpadCapableThread)
-	{
-		if (!pRegisterTouchpadCapableThread(TRUE))
-		{
-			fprintf(stderr,
-				"[WIN32] RegisterTouchpadCapableThread failed: %lu\n",
-				GetLastError());
-		}
-
-	}
-	else
-	{
-		fprintf(stderr,
-			"[WIN32] RegisterTouchpadCapableThread not available\n");
-	}
-
-	// Register keyboard Raw Input to distinguish physical Ctrl
-	// from the Ctrl synthesized by Windows for touchpad pinch gestures.
-	HWND hWnd = glfwGetWin32Window(window);
-
-	RAWINPUTDEVICE keyboardRid = {};
-	keyboardRid.usUsagePage = 0x01;   // Generic Desktop Controls
-	keyboardRid.usUsage     = 0x06;   // Keyboard
-	keyboardRid.dwFlags     = RIDEV_INPUTSINK;
-	keyboardRid.hwndTarget  = hWnd;
-
-	if (!RegisterRawInputDevices(&keyboardRid, 1, sizeof(keyboardRid)))
-	{
-		fprintf(stderr,
-			"[WIN32] Raw keyboard registration failed: %lu\n",
-			GetLastError());
-	}
-#endif
-
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
 
@@ -184,20 +120,26 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    App app;
 
-    // Load persisted settings BEFORE building the font atlas so fontSize
-    // from airscope.ini is available for the font loader.
+    App app;
+    // Three concurrent receivers by default: RTL, Airspy, SDRplay.
+    app.rx.push_back(std::make_unique<Receiver>());
+    app.rx.push_back(std::make_unique<Receiver>());
+    app.rx.push_back(std::make_unique<Receiver>());
+    app.rx[0]->mode = kRxRtl;
+    app.rx[0]->centerMHz = 131.550;
+    app.rx[1]->mode = kRxAirspy;
+    app.rx[1]->centerMHz = 130.000;
+    app.rx[2]->mode = kRxSdrplay;
+    app.rx[2]->centerMHz = 131.725;
+
     cfgRegisterHandler(app);
     io.IniFilename = "airscope.ini";
     ImGui::LoadIniSettingsFromDisk(io.IniFilename);
 
-    // Apply persisted theme.
     if (app.lightMode)
     {
         ImGui::StyleColorsLight();
-        // Darken light theme for readability — default StyleColorsLight() is
-        // too low-contrast on most monitors.
         ImGuiStyle& st = ImGui::GetStyle();
         st.Colors[ImGuiCol_Text]                  = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
         st.Colors[ImGuiCol_TextDisabled]           = ImVec4(0.36f, 0.36f, 0.36f, 1.00f);
@@ -205,19 +147,14 @@ int main(int, char**)
         st.Colors[ImGuiCol_TableHeaderBg]          = ImVec4(0.73f, 0.73f, 0.73f, 1.00f);
         st.Colors[ImGuiCol_TableRowBg]             = ImVec4(0.97f, 0.97f, 0.97f, 1.00f);
         st.Colors[ImGuiCol_TableRowBgAlt]          = ImVec4(0.88f, 0.88f, 0.88f, 1.00f);
-        // Frame backgrounds (combos, inputs) need to stay distinguishable.
         st.Colors[ImGuiCol_FrameBg]                = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
     }
     else
         ImGui::StyleColorsDark();
 
-    // Language and font size.  Both require a restart to take full effect
-    // for the font atlas, but strings pass through _L() immediately.
     i18nInit();
     i18nSet((Lang)app.languageIdx);
 
-    // Font: use Roboto-Medium (vendored TTF, scales cleanly at any size).
-    // Clamp to sensible range and scale the style sizes proportionally.
     if (app.fontSize < 8)  app.fontSize = 8;
     if (app.fontSize > 24) app.fontSize = 24;
     {
@@ -232,7 +169,7 @@ int main(int, char**)
             if (f) { std::fclose(f); loaded = (io.Fonts->AddFontFromFileTTF(fp, (float)app.fontSize) != nullptr); break; }
         }
         if (!loaded)
-            io.Fonts->AddFontDefault(); // fallback to built-in ProggyClean
+            io.Fonts->AddFontDefault();
     }
     ImGui::GetStyle().ScaleAllSizes((float)app.fontSize / 13.0f);
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -245,40 +182,40 @@ int main(int, char**)
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    // If the saved layout predates the current default (or none was saved),
-    // rebuild the canonical default layout so users get the intended arrangement.
     if (app.layoutVersion != kLayoutVersion)
     {
         app.forceDefaultLayout = true;
         app.layoutVersion = kLayoutVersion;
     }
 
-    buildWindow(app.viewA, kFftSizes[app.fftSizeIdx], app.dbMin);
-    buildWindow(app.viewB, kFftSizes[app.fftSizeIdx], app.dbMin);
-    app.devices = app.sdr.listDevices();
-    app.audioDevs = app.decoders.audioDevices();
-    app.decodersB.audioDevices(); // prime SDR B's device cache for id resolution
-    app.decoders.setAudioDevice(app.audioDevice);  // apply persisted audio device
-    app.decodersB.setAudioDevice(app.audioDevice);
-    // Message store: wire to both decoder managers (but enabled_ starts false).
-    app.decoders.setMessageStore(&app.writeDb);
-    app.decodersB.setMessageStore(&app.writeDb);
-    // Cleanup old archive databases.
+    for (auto& rp : app.rx)
+        buildWindow(rp->view, kFftSizes[app.fftSizeIdx], app.dbMin);
+
+    app.audioDevs = app.rx.front()->decoders.audioDevices();
+    for (size_t i = 0; i < app.rx.size(); ++i)
+    {
+        auto& rp = app.rx[i];
+        if (!rp->src)
+            rp->src = makeSdrSource(rp->mode);
+        rp->decoders.setMessageStore(&app.writeDb);
+        rp->decoders.setAudioDevice(app.audioDevice);
+        rp->decoders.setAudioEnabled(i == 0); // one audio device only
+        rp->decoders.voiceCallLog().scanDir(app.recordDir);
+        rp->devices = rp->src ? rp->src->listDevices() : std::vector<SdrDeviceInfo>{};
+    }
+
     app.writeDb.cleanup("databases", app.maxDbAgeDays);
     app.verCheck.start("airscope", AIRSCOPE_VERSION);
     scanBandPlans(app.bandPlanDir, app.bandPlanNames, app.bandPlanPaths);
-    if (app.bandPlanIdx >= 0 && app.bandPlanIdx < (int)app.bandPlanPaths.size())
-        app.bandPlanLoaded = loadBandPlan(app.bandPlanPaths[app.bandPlanIdx]);
-    if (app.bandPlanIdxB >= 0 && app.bandPlanIdxB < (int)app.bandPlanPaths.size())
-        app.bandPlanLoadedB = loadBandPlan(app.bandPlanPaths[app.bandPlanIdxB]);
-    app.decoders.voiceCallLog().scanDir(app.recordDir);
-    // Start web server if previously enabled
+    for (auto& rp : app.rx)
+        if (rp->bandPlanIdx >= 0 && rp->bandPlanIdx < (int)app.bandPlanPaths.size())
+            rp->bandPlanLoaded = loadBandPlan(app.bandPlanPaths[rp->bandPlanIdx]);
+
     if (app.webServerEnabled)
     {
-        app.webServer.decodersA = &app.decoders;
-        app.webServer.decodersB = &app.decodersB;
-        app.webServer.dualMode = &app.dualMode;
-        app.webServer.active = &app.active;
+        app.webServer.receivers.clear();
+        for (auto& rp : app.rx)
+            app.webServer.receivers.push_back(rp.get());
         app.webServer.start(app.webServerPort);
     }
 #if defined(_WIN32)
@@ -297,15 +234,13 @@ int main(int, char**)
 
         drawDockHost(app);
 
-        if (app.active->running())
-            processFft(app.viewA, app, app.active->centerFreq(), app.active->sampleRate());
-        if (app.dualMode && app.sdrB.running())
-            processFft(app.viewB, app, app.sdrB.centerFreq(), app.sdrB.sampleRate());
+        for (auto& rp : app.rx)
+        {
+            if (rp->running())
+                processFft(rp->view, app, rp->src->centerFreq(), rp->src->sampleRate());
+        }
+        updateRateChange(app);
 
-        if (app.active->running())
-            updateRateChange(app);
-
-        // Log-to-DB toggle: start/stop per-session database.
         if (app.logToDb != app.writeDb.enabled())
         {
             if (app.logToDb)
@@ -314,38 +249,27 @@ int main(int, char**)
                 app.writeDb.setEnabled(false);
         }
 
-        // Refresh saved decoder list for persistent restart
-        if (app.saveDecoders && app.active->running())
+        // Refresh saved decoder lists for persistent restart.
+        if (app.saveDecoders)
         {
-            app.savedDecoders.clear();
-            for (auto& st : app.decoders.status())
-                app.savedDecoders.push_back({st.freqMHz, st.baud});
-            app.savedDecodersB.clear();
-            for (auto& st : app.decodersB.status())
-                app.savedDecodersB.push_back({st.freqMHz, st.baud});
+            for (auto& rp : app.rx)
+            {
+                if (!rp->running()) continue;
+                rp->savedDecoders.clear();
+                for (auto& st : rp->decoders.status())
+                    rp->savedDecoders.push_back({st.freqMHz, st.baud});
+            }
         }
 
         updateFeed(app);
 
         drawControls(app);
+        for (size_t i = 0; i < app.rx.size(); ++i)
         {
-            std::string t = std::string(_L("Spectrum")) + "###Spectrum";
-            drawSpectrum(app, app.viewA, app.decoders, t.c_str(), true, false);
-        }
-        {
-            std::string t = std::string(_L("Waterfall")) + "###Waterfall";
-            drawWaterfall(app, app.viewA, t.c_str());
-        }
-        if (app.dualMode)
-        {
-            {
-                std::string t = std::string(_L("Spectrum")) + "###Spectrum (B)";
-                drawSpectrum(app, app.viewB, app.decodersB, t.c_str(), true, true);
-            }
-            {
-                std::string t = std::string(_L("Waterfall")) + "###Waterfall (B)";
-                drawWaterfall(app, app.viewB, t.c_str());
-            }
+            auto& rp = app.rx[i];
+            if (!rp->showSpectrum) continue;
+            drawSpectrum(app, *rp, (int)i, i == 1);
+            drawWaterfall(app, *rp, (int)i);
         }
         drawDecoders(app);
         drawMessages(app);
@@ -355,18 +279,16 @@ int main(int, char**)
         drawConstellation(app);
         drawAbout(app);
 
-        // Auto-mute live audio during playback, restore after
+        // Auto-mute live audio during playback, restore after.
         static bool wasPlaying = false;
         bool isPlaying = app.audioPlayer.isPlaying();
         if (isPlaying && !wasPlaying)
         {
-            app.decoders.setVoiceMute(true);
-            app.decodersB.setVoiceMute(true);
+            for (auto& rp : app.rx) rp->decoders.setVoiceMute(true);
         }
         else if (!isPlaying && wasPlaying)
         {
-            app.decoders.setVoiceMute(app.voiceMuted);
-            app.decodersB.setVoiceMute(app.voiceMuted);
+            for (auto& rp : app.rx) rp->decoders.setVoiceMute(app.voiceMuted);
         }
         wasPlaying = isPlaying;
 
@@ -390,16 +312,10 @@ int main(int, char**)
         glfwSwapBuffers(window);
     }
 
-    // Persist settings + dock layout to airscope.ini before shutting down.
     ImGui::SaveIniSettingsToDisk(io.IniFilename);
 
-    app.decoders.stop();
-    app.decodersB.stop();
-    app.sdr.stop();
-    app.sdrB.stop();
-    app.wav.stop();
+    stopAll(app);
     app.webServer.stop();
-
     app.writeDb.closeCurrent();
 
     ImGui_ImplOpenGL3_Shutdown();

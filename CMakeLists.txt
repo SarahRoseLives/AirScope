@@ -42,6 +42,15 @@ if(AIRSPY_LIBRARIES)
     message(STATUS "Airspy link library found: ${AIRSPY_LIBRARIES}")
 endif()
 
+# SDRplay (native source, optional).
+find_path(SDRPLAY_INCLUDE_DIRS NAMES sdrplay_api.h)
+find_library(SDRPLAY_LIBRARIES NAMES sdrplay_api)
+set(SDRPLAY_FOUND FALSE)
+if(SDRPLAY_INCLUDE_DIRS AND SDRPLAY_LIBRARIES)
+    set(SDRPLAY_FOUND TRUE)
+    message(STATUS "SDRplay link library found: ${SDRPLAY_LIBRARIES}")
+endif()
+
 set(IMGUI_DIR   ${CMAKE_SOURCE_DIR}/third_party/imgui)
 set(IMPLOT_DIR  ${CMAKE_SOURCE_DIR}/third_party/implot)
 
@@ -98,6 +107,7 @@ add_executable(AirScope
     src/sdr/rtl_sdr_source.cpp
     src/sdr/wav_file_source.cpp
     src/sdr/iq_recorder.cpp
+    src/receiver/receiver.cpp
     src/gui/waterfall.cpp
     src/dsp/jfft.cpp
     src/decode/decoder.cpp
@@ -138,6 +148,11 @@ if(AIRSPY_FOUND)
     target_compile_definitions(AirScope PRIVATE HAS_AIRSPY=1)
     target_include_directories(AirScope PRIVATE ${AIRSPY_INCLUDE_DIRS})
 endif()
+if(SDRPLAY_FOUND)
+    target_sources(AirScope PRIVATE src/sdr/sdrplay_source.cpp)
+    target_compile_definitions(AirScope PRIVATE HAS_SDRPLAY=1)
+    target_include_directories(AirScope PRIVATE ${SDRPLAY_INCLUDE_DIRS})
+endif()
 find_library(ZSTD_LIBRARIES NAMES zstd libzstd REQUIRED)
 find_library(ZLIB_LIB NAMES z libz zlib REQUIRED)
 find_library(SQLITE3_LIB NAMES sqlite3 libsqlite3 REQUIRED)
@@ -164,6 +179,9 @@ find_package(Threads REQUIRED)
 target_link_libraries(AirScope PRIVATE Threads::Threads)
 if(AIRSPY_FOUND)
     target_link_libraries(AirScope PRIVATE ${AIRSPY_LIBRARIES})
+endif()
+if(SDRPLAY_FOUND)
+    target_link_libraries(AirScope PRIVATE ${SDRPLAY_LIBRARIES})
 endif()
 target_link_directories(AirScope PRIVATE ${RTLSDR_LIBRARY_DIRS})
 
@@ -206,6 +224,9 @@ if(WIN32)
     )
     if(AIRSPY_FOUND)
         list(APPEND FRAMESYNC_RUNTIME_DLLS libairspy.dll)
+    endif()
+    if(SDRPLAY_FOUND)
+        list(APPEND FRAMESYNC_RUNTIME_DLLS sdrplay_api.dll)
     endif()
     foreach(dll ${FRAMESYNC_RUNTIME_DLLS})
         if(EXISTS "${MINGW_BIN}/${dll}")

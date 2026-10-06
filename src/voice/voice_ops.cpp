@@ -1,47 +1,27 @@
 #include "core/app.h"
 #include "core/main_funcs.h"
 
-// Retune the active (live) source to a new center and re-point the decoder
-// manager there. Wipes all decoders -- callers restore what they need.
-void retuneActive(App& app, double centerMHz)
-{
-    double hz = centerMHz * 1e6;
-    app.centerFreqMHz = centerMHz;
-    app.viewA.resetView = true;
-    if (app.sourceMode == 0 || app.sourceMode == 4)
-        app.sdr.setCenterFreq(hz);
-#ifdef HAS_AIRSPY
-    else if (app.sourceMode == 5)
-        app.airspy.setCenterFreq(hz);
-#endif
-    app.decoders.removeAll();
-    app.decoders.configure(app.active->sampleRate(), hz);
-    // Rebuild the frequency axis now (processFft already ran this frame with the
-    // old center) so drawSpectrum fits the view to the NEW band and the decoder
-    // marker stays on screen after a big jump.
-    if (app.viewA.curN > 0)
-        updateFreqAxis(app.viewA, hz, app.active->sampleRate(), app.viewA.curN);
-}
-
-// Retune a live source to a new center while keeping the current decoders
-// (re-added at their same absolute frequencies) and the user's spectrum view.
-// Used for band browsing, where we sweep the radio as the view is panned.
-void retunePreserving(App& app, double centerMHz)
+// Retune a receiver to a new center. When `preserving` is true the current
+// decoders are re-added at their same absolute frequencies (band browsing);
+// otherwise they are wiped.
+void retuneReceiver(Receiver& r, double centerMHz, bool preserving)
 {
     std::vector<std::pair<double, int>> keep;
-    for (auto& s : app.decoders.status())
-        keep.push_back({s.freqMHz, s.baud});
+    if (preserving)
+        for (auto& s : r.decoders.status())
+            keep.push_back({s.freqMHz, s.baud});
 
-    double hz = centerMHz * 1e6;
-    app.centerFreqMHz = centerMHz;
-    if (app.sourceMode == 0 || app.sourceMode == 4)
-        app.sdr.setCenterFreq(hz);
-#ifdef HAS_AIRSPY
-    else if (app.sourceMode == 5)
-        app.airspy.setCenterFreq(hz);
-#endif
-    app.decoders.removeAll();
-    app.decoders.configure(app.active->sampleRate(), hz);
+    r.centerMHz = centerMHz;
+    r.view.resetView = true;
+    if (r.src && r.src->running())
+        r.src->setCenterFreq(centerMHz * 1e6);
+
+    double fs = r.src ? r.src->sampleRate() : 0.0;
+    r.decoders.removeAll();
+    r.decoders.configure(fs, centerMHz * 1e6);
+    if (r.view.curN > 0 && fs > 0.0)
+        updateFreqAxis(r.view, centerMHz * 1e6, fs, r.view.curN);
+
     for (auto& k : keep)
-        app.decoders.addDecoder(k.first * 1e6, k.second);
+        r.decoders.addDecoder(k.first * 1e6, k.second);
 }
