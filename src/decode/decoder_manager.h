@@ -145,5 +145,5 @@ private:
     std::string recordDir_ = "recordings";
     RecordFormat recordFmt_ = RecordFormat::WAV;
     double squelchDb_ = -120.0;
-    float  volume_ = 1.0f;
+    float  volume_ = 5.0f;
 };

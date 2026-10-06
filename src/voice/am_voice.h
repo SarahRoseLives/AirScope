@@ -57,7 +57,7 @@ private:
     double agcPeak_ = 1e-4;
     double squelchDb_ = -120.0;
     double noiseDb_ = -120.0;
-    float  volume_ = 1.0f;
+    float  volume_ = 5.0f;
     bool   sqlOpen_ = false;
     int    sqlHold_ = 0;   // samples until close
     double sigDb_ = -120.0;
