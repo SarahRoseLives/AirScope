@@ -63,6 +63,7 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
     WF(browseEdgePct); WF(browseThrottleMs); WF(browseMinMovePct);
     WS(recordDir);
     WI(recordFormat);
+    WI(recordVoice);
     WI(saveDecoders);
     WI(acPosOnly);
     WI(showEmptyMsgs);
@@ -169,7 +170,7 @@ void cfgReadLine(App& app, const char* line)
     RB(autoScale); RB(bandBrowse); RF(avgAlpha); RF(dbMin); RF(dbMax);
     RF(browseEdgePct); RF(browseThrottleMs); RF(browseMinMovePct);
     RS(recordDir);
-    RI(recordFormat); RB(saveDecoders);
+    RI(recordFormat); RB(recordVoice); RB(saveDecoders);
     RB(acPosOnly);
     RB(showEmptyMsgs);
     RS(bandPlanDir);

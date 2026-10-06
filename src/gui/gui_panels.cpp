@@ -1445,16 +1445,19 @@ void drawVoiceCalls(App& app)
             else
                 ImGui::TextUnformatted("--");
             ImGui::TableNextColumn();
-            bool sel = app.audioPlayer.isPlaying() && !c.filename.empty() &&
-                       app.audioPlayer.currentPath().find(c.filename) != std::string::npos;
-            char label[24];
-            std::snprintf(label, sizeof(label), "%s##vcp%d", sel ? "||" : ">", rowIdx);
-            if (ImGui::SmallButton(label))
+            if (!c.filename.empty())
             {
-                if (sel)
-                    app.audioPlayer.stop();
-                else if (!c.filename.empty())
-                    app.audioPlayer.play(std::string(app.recordDir) + "/" + c.filename);
+                bool sel = app.audioPlayer.isPlaying() &&
+                           app.audioPlayer.currentPath().find(c.filename) != std::string::npos;
+                char label[24];
+                std::snprintf(label, sizeof(label), "%s##vcp%d", sel ? "||" : ">", rowIdx);
+                if (ImGui::SmallButton(label))
+                {
+                    if (sel)
+                        app.audioPlayer.stop();
+                    else
+                        app.audioPlayer.play(std::string(app.recordDir) + "/" + c.filename);
+                }
             }
             copyRows.push_back(copyFmt("%02d:%02d:%02d\t%.4f\t%s",
                 tm.tm_hour, tm.tm_min, tm.tm_sec, c.freqMHz, c.filename.c_str()));

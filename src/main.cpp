@@ -220,6 +220,8 @@ int main(int, char**)
         rp->decoders.setAudioDevice(app.audioDevice);
         rp->decoders.setSquelchDb(app.voiceSquelchDb);
         rp->decoders.setVolume(app.voiceVolume);
+        rp->decoders.setRecordFormat((app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV);
+        rp->decoders.setRecording(app.recordVoice, app.recordDir);
         rp->decoders.setAudioEnabled(i == 0); // one audio device only
         rp->decoders.voiceCallLog().scanDir(app.recordDir);
         if (rp->role == RxRole::Adsb)
