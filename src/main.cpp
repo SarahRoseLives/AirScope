@@ -268,10 +268,15 @@ int main(int, char**)
 
         for (auto& rp : app.rx)
         {
-            if (rp->running())
-                processFft(rp->view, app, rp->src->centerFreq(), rp->src->sampleRate());
+            if (!rp->running())
+                continue;
+            // The voice scanner needs the FFT even when its spectrum is hidden.
+            if (app.callHunterMode && rp->role == RxRole::Voice)
+                rp->view.fftSkip = false;
+            processFft(rp->view, app, rp->src->centerFreq(), rp->src->sampleRate());
         }
         updateRateChange(app);
+        updateCallHunter(app);
         app.beast.poll();
         for (auto& rp : app.rx)
             rp->decoders.maintainAudio();

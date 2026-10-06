@@ -12,6 +12,7 @@ void updateRateChange(App&);
 
 // voice/voice_ops.cpp
 void retuneReceiver(Receiver&, double centerMHz, bool preserving);
+void updateCallHunter(App&);
 
 // session/session.cpp
 void updateFeed(App&);

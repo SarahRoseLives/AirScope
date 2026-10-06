@@ -55,6 +55,7 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
     WI(audioDevice); WI(voiceMuted); WI(cpuReduce);
     WF(voiceSquelchDb);
     WF(voiceVolume);
+    WI(callHunterMode); WF(callHunterThreshDB); WI(callHunterConfirm); WI(callHunterLost);
     WI(logToDb); WI(maxDbAgeDays);
     WI(webServerEnabled); WI(webServerPort);
     WF(iqBufferSec);
@@ -161,6 +162,7 @@ void cfgReadLine(App& app, const char* line)
     RI(audioDevice); RB(voiceMuted); RB(cpuReduce);
     RF(voiceSquelchDb);
     RF(voiceVolume);
+    RB(callHunterMode); RF(callHunterThreshDB); RI(callHunterConfirm); RI(callHunterLost);
     RB(logToDb); RI(maxDbAgeDays);
     RB(webServerEnabled); RI(webServerPort);
     RF(iqBufferSec);

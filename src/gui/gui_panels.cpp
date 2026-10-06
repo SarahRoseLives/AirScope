@@ -847,6 +847,23 @@ void drawDecoders(App& app)
     ImGui::TextDisabled("(very low = always open)");
     ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
+    if (ImGui::CollapsingHeader(_L("Voice Scanner (auto-scan)")))
+    {
+        ImGui::Checkbox(_L("Enable scanner"), &app.callHunterMode);
+        ImGui::SliderFloat(_L("Threshold (dB above baseline)"), &app.callHunterThreshDB, 1.0f, 20.0f, "%.1f");
+        ImGui::SliderInt(_L("Confirm frames"), &app.callHunterConfirm, 5, 60);
+        ImGui::SliderInt(_L("Lost frames"), &app.callHunterLost, 10, 120);
+        int activeN = 0;
+        for (auto& c : app.callHunterCands)
+            if (c.channelId >= 0) ++activeN;
+        if (app.callHunterWarmup > 0)
+            ImGui::TextDisabled("Settling baseline... (%d)", app.callHunterWarmup);
+        else
+            ImGui::TextDisabled("Tracking %d candidate(s), %d active",
+                                (int)app.callHunterCands.size(), activeN);
+        ImGui::TextDisabled("Detects voice calls in the visible Voice spectrum.");
+    }
+
     ImGui::Separator();
 
     if (ImGui::BeginTable("##decs", 6,

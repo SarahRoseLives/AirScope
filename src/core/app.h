@@ -20,6 +20,17 @@
 #include <string>
 #include <vector>
 
+// A voice signal the scanner is tracking (spectrum-baseline auto-scan).
+struct CallHunterCand
+{
+    double freqMHz = 0.0;
+    double peakDB = -999.0;
+    int    confirmCount = 0;
+    int    lostCount = 0;
+    int    channelId = -1;
+    bool   matched = false;
+};
+
 struct App
 {
     // Concurrent receivers (e.g. Airspy voice + SDRplay ACARS + RTL ADS-B).
@@ -58,6 +69,16 @@ struct App
     WebServer webServer;
     AudioPlayer audioPlayer;
     std::vector<std::string> audioDevs;
+
+    // Voice scanner (auto-scan for voice calls on the Voice receiver).
+    bool  callHunterMode = false;
+    float callHunterThreshDB = 2.0f;
+    int   callHunterConfirm = 10;
+    int   callHunterLost = 30;
+    std::vector<CallHunterCand> callHunterCands;
+    std::vector<float> callHunterBaseline;
+    int    callHunterWarmup = 0;
+    double callHunterLastCenter = 0.0;
 
     // Output
     MessageFeed feed;

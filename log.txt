@@ -1,0 +1,1 @@
+[03:25:39] [wav] opened 2ch 16-bit 1e+07 Hz
