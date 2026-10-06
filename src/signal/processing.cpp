@@ -160,6 +160,8 @@ void updateRateChange(App& app)
                     break;
                 }
         rp->lastConfiguredFs = fs;
+        if (rp->adsb)
+            rp->adsb->configure(fs, center);
         if (rp == app.rx.front())
             app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
         rp->view.resetView = true;

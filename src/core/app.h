@@ -13,6 +13,7 @@
 #include "output/message_feed.h"
 #include "update/version_check.h"
 #include "web/flight_map_webview.h"
+#include "adsb/beast_writer.h"
 
 #include <chrono>
 #include <memory>
@@ -72,6 +73,13 @@ struct App
     bool   outSbs = false;
     char   outSbsHost[128] = "127.0.0.1";
     int    outSbsPort = 30003;
+
+    // ADS-B
+    BeastWriter beast;
+    bool   outBeast = false;
+    int    outBeastPort = 30005;
+    int    adsbFixBits = 1;        // 0 = none, 1 = 1-bit, 2 = 2-bit CRC repair
+    bool   adsbPhaseEnhance = false;
 
     int   fftSizeIdx = 2;
     float avgAlpha = 0.6f;
@@ -134,4 +142,4 @@ constexpr const char* kFftLabels[] = {"1024", "2048", "4096", "8192", "16384", "
 constexpr int kNumFftSizes = (int)(sizeof(kFftSizes) / sizeof(kFftSizes[0]));
 
 // Dock layout version: bump when the built-in default layout changes.
-constexpr int kLayoutVersion = 14;
+constexpr int kLayoutVersion = 15;

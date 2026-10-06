@@ -436,6 +436,43 @@ void drawControls(App& app)
         ImGui::TextDisabled("ACARS -> JAERO JSONdump.");
     }
 
+    // ---- ADS-B ----
+    ImGui::Separator();
+    if (ImGui::CollapsingHeader(_L("ADS-B")))
+    {
+        if (ImGui::Checkbox("Beast binary server", &app.outBeast))
+        {
+            if (app.outBeast) app.beast.start(app.outBeastPort);
+            else              app.beast.stop();
+        }
+        ImGui::SetNextItemWidth(-70.0f);
+        ImGui::InputInt("Beast port", &app.outBeastPort);
+        if (app.outBeast && app.beast.running() && app.beast.port() != app.outBeastPort)
+        {
+            app.beast.stop();
+            app.beast.start(app.outBeastPort);
+        }
+        if (app.outBeast)
+        {
+            if (app.beast.running())
+                ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f),
+                                   "Listening on TCP :%d  -  %d client(s), %llu sent",
+                                   app.beast.port(), app.beast.clientCount(),
+                                   (unsigned long long)app.beast.sentCount());
+            else
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                                   "Bind failed on :%d (port in use?)", app.outBeastPort);
+        }
+
+        const char* fixLabels[] = {"Off", "1-bit", "2-bit"};
+        if (ImGui::Combo("CRC repair", &app.adsbFixBits, fixLabels, 3))
+            for (auto& rp : app.rx)
+                if (rp->adsb) rp->adsb->setFixBits(app.adsbFixBits);
+        if (ImGui::Checkbox("Phase enhancement (slower, more sensitive)", &app.adsbPhaseEnhance))
+            for (auto& rp : app.rx)
+                if (rp->adsb) rp->adsb->setPhaseEnhance(app.adsbPhaseEnhance);
+    }
+
     // ---- IQ Recorder ----
     ImGui::Separator();
     if (ImGui::CollapsingHeader("IQ Recorder"))
@@ -1057,6 +1094,15 @@ void drawAircraft(App& app)
     copyAllButton(acCopy);
     ImGui::SameLine();
     ImGui::Checkbox(_L("With position only"), &app.acPosOnly);
+    for (auto& rp : app.rx)
+        if (rp->adsb)
+        {
+            auto s = rp->adsb->stats();
+            ImGui::SameLine();
+            ImGui::TextDisabled("| ADS-B %llu good, %llu frames, %d ac",
+                                (unsigned long long)s.good, (unsigned long long)s.total,
+                                rp->adsb->aircraftCount());
+        }
     ImGui::Separator();
 
     double now = (double)std::time(nullptr);
@@ -1183,7 +1229,82 @@ void drawFlightMap(App& app)
     ImGui::End();
 }
 #else
-void drawFlightMap(App&) {}
+void drawFlightMap(App& app)
+{
+    ImGui::Begin((std::string(_L("Flight Map")) + "###Flight Map").c_str());
+
+    std::vector<AircraftEntry> acs;
+    for (auto& rp : app.rx)
+    {
+        auto b = rp->decoders.aircraftTable().snapshot();
+        for (auto& a : b)
+            if (a.hasPos && a.lat >= -90.0 && a.lat <= 90.0 && a.lon >= -180.0 && a.lon <= 180.0)
+                acs.push_back(a);
+    }
+
+    ImGui::Text("%zu aircraft with position", acs.size());
+    ImGui::SameLine();
+    static bool fit = true;
+    if (ImGui::SmallButton(_L("Fit")))
+        fit = true;
+    static bool showLabels = true;
+    ImGui::SameLine();
+    ImGui::Checkbox(_L("Labels"), &showLabels);
+
+    if (acs.empty())
+    {
+        ImGui::TextDisabled("%s",
+            _L("No aircraft positions yet - tune the ADS-B receiver to 1090 MHz."));
+        ImGui::End();
+        return;
+    }
+
+    double latMin = 90.0, latMax = -90.0, lonMin = 180.0, lonMax = -180.0;
+    for (auto& a : acs)
+    {
+        latMin = std::min(latMin, a.lat); latMax = std::max(latMax, a.lat);
+        lonMin = std::min(lonMin, a.lon); lonMax = std::max(lonMax, a.lon);
+    }
+    double padLat = std::max(0.2, (latMax - latMin) * 0.15);
+    double padLon = std::max(0.2, (lonMax - lonMin) * 0.15);
+
+    std::vector<double> xs, ys;
+    xs.reserve(acs.size());
+    ys.reserve(acs.size());
+    for (auto& a : acs) { xs.push_back(a.lon); ys.push_back(a.lat); }
+
+    if (fit)
+    {
+        ImPlot::SetNextAxisLimits(ImAxis_X1, lonMin - padLon, lonMax + padLon, ImGuiCond_Always);
+        ImPlot::SetNextAxisLimits(ImAxis_Y1, latMin - padLat, latMax + padLat, ImGuiCond_Always);
+        fit = false;
+    }
+
+    if (ImPlot::BeginPlot("##adsbmap", ImVec2(-1, -1),
+                          ImPlotFlags_NoLegend | ImPlotFlags_NoTitle))
+    {
+        ImPlot::SetupAxis(ImAxis_X1, "Longitude");
+        ImPlot::SetupAxis(ImAxis_Y1, "Latitude");
+        ImPlotSpec spec;
+        spec.Marker = ImPlotMarker_Circle;
+        spec.MarkerSize = 5.0f;
+        spec.MarkerFillColor = ImVec4(0.2f, 0.8f, 1.0f, 1.0f);
+        ImPlot::PlotScatter("Aircraft", xs.data(), ys.data(), (int)xs.size(), spec);
+        if (showLabels)
+        {
+            for (auto& a : acs)
+            {
+                std::string label = !a.flight.empty() ? a.flight
+                                  : (!a.reg.empty() ? a.reg : a.icao);
+                ImPlot::Annotation(a.lon, a.lat, ImVec4(0.9f, 0.9f, 0.5f, 1.0f),
+                                   ImVec2(0, -10), true, "%s", label.c_str());
+            }
+        }
+        ImPlot::EndPlot();
+    }
+
+    ImGui::End();
+}
 #endif // _WIN32
 
 void drawVoiceCalls(App& app)
@@ -1371,6 +1492,7 @@ void drawDockHost(App& app)
         (void)disp;
         ImGui::DockBuilderDockWindow((std::string(_L("Messages")) + "###Messages").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Aircraft")) + "###Aircraft").c_str(), rbot);
+        ImGui::DockBuilderDockWindow((std::string(_L("Flight Map")) + "###Flight Map").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Voice Calls")) + "###Voice Calls").c_str(), rbot);
         ImGui::DockBuilderFinish(dockId);
     }

@@ -129,6 +129,10 @@ add_executable(AirScope
     src/output/message_feed.cpp
     src/update/version_check.cpp
     src/web/flight_map_webview.cpp
+    src/adsb/adsb_decoder.cpp
+    src/adsb/adsb_tracker.cpp
+    src/adsb/adsb_manager.cpp
+    src/adsb/beast_writer.cpp
 )
 # Microsoft Edge WebView2 for the embedded Flight Map browser (Windows only).
 if(WIN32)

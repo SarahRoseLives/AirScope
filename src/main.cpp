@@ -207,8 +207,20 @@ int main(int, char**)
         rp->decoders.setVolume(app.voiceVolume);
         rp->decoders.setAudioEnabled(i == 0); // one audio device only
         rp->decoders.voiceCallLog().scanDir(app.recordDir);
+        if (rp->role == RxRole::Adsb)
+        {
+            if (!rp->adsb)
+                rp->adsb = std::make_unique<AdsbManager>();
+            rp->adsb->setAircraftTable(&rp->decoders.aircraftTable());
+            rp->adsb->setBeast(&app.beast);
+            rp->adsb->setFixBits(app.adsbFixBits);
+            rp->adsb->setPhaseEnhance(app.adsbPhaseEnhance);
+        }
         rp->devices = rp->src ? rp->src->listDevices() : std::vector<SdrDeviceInfo>{};
     }
+
+    if (app.outBeast)
+        app.beast.start(app.outBeastPort);
 
     app.writeDb.cleanup("databases", app.maxDbAgeDays);
     app.verCheck.start("airscope", AIRSCOPE_VERSION);
@@ -246,6 +258,7 @@ int main(int, char**)
                 processFft(rp->view, app, rp->src->centerFreq(), rp->src->sampleRate());
         }
         updateRateChange(app);
+        app.beast.poll();
         for (auto& rp : app.rx)
             rp->decoders.maintainAudio();
 

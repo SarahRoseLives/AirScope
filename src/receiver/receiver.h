@@ -10,6 +10,7 @@
 #include "sdr/sdr_source.h"
 #include "decode/decoder_manager.h"
 #include "decode/band_plan.h"
+#include "adsb/adsb_manager.h"
 
 #include <atomic>
 #include <chrono>
@@ -74,6 +75,7 @@ struct Receiver
 
     SpectrumView   view;
     DecoderManager decoders;
+    std::unique_ptr<AdsbManager> adsb; // non-null only for the ADS-B role
 
     // ---- per-receiver tuner configuration ----
     int    deviceIndex = 0;

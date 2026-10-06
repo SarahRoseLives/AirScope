@@ -53,10 +53,13 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
 
     IqRing* ring = &r.view.ring;
     DecoderManager* mgr = &r.decoders;
+    AdsbManager* adsb = r.adsb.get();
     IqRecorder* iqr = feedIqRecorder ? &app.iqRecorder : nullptr;
-    auto cb = [ring, mgr, iqr](const float* iq, int n) {
+    auto cb = [ring, mgr, adsb, iqr](const float* iq, int n) {
         ring->push(iq, (size_t)n);
         mgr->feed(iq, n);
+        if (adsb)
+            adsb->feed(iq, n);
         if (iqr)
         {
             iqr->prebuffer(iq, n);
@@ -131,6 +134,11 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
         r.decoders.removeAll();
         r.decoders.configure(r.src->sampleRate(), r.src->centerFreq());
         r.decoders.start();
+        if (r.adsb)
+        {
+            r.adsb->configure(r.src->sampleRate(), r.src->centerFreq());
+            r.adsb->start();
+        }
         if (feedIqRecorder)
             app.iqRecorder.configurePrebuffer(r.src->sampleRate(), app.iqBufferSec);
 
@@ -185,6 +193,8 @@ void stopAll(App& app)
             continue;
         if (rp->src)
             rp->src->stop();
+        if (rp->adsb)
+            rp->adsb->stop();
         rp->decoders.stop();
         rp->decoders.removeAll();
         rp->status = "Idle";
