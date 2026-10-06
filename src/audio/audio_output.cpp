@@ -157,13 +157,18 @@ void AudioOutput::setDevice(int index)
         impl_->hasId = true;
     }
 
-    // Live-restart on the newly selected device.
+    // Live-restart on the newly selected device. Do NOT hold the ring mutex
+    // across openDevice(): the freshly started audio callback locks the same
+    // mutex, and starting the device can synchronously wait for that callback
+    // (deadlock).
     if (impl_->started)
     {
         ma_device_uninit(&impl_->device);
         impl_->started = false;
-        std::lock_guard<std::mutex> lk(impl_->mtx);
-        impl_->rd = impl_->wr = impl_->count = 0;
+        {
+            std::lock_guard<std::mutex> lk(impl_->mtx);
+            impl_->rd = impl_->wr = impl_->count = 0;
+        }
         impl_->openDevice();
     }
 }
