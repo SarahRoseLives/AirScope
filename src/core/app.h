@@ -74,7 +74,7 @@ struct App
     bool  callHunterMode = false;
     float callHunterThreshDB = 2.0f;
     int   callHunterConfirm = 10;
-    int   callHunterLost = 30;
+    int   callHunterLost = 12;
     std::vector<CallHunterCand> callHunterCands;
     std::vector<float> callHunterBaseline;
     int    callHunterWarmup = 0;

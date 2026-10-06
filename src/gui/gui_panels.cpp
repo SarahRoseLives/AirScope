@@ -860,7 +860,7 @@ void drawDecoders(App& app)
         ImGui::Checkbox(_L("Enable scanner"), &app.callHunterMode);
         ImGui::SliderFloat(_L("Threshold (dB above baseline)"), &app.callHunterThreshDB, 1.0f, 20.0f, "%.1f");
         ImGui::SliderInt(_L("Confirm frames"), &app.callHunterConfirm, 5, 60);
-        ImGui::SliderInt(_L("Lost frames"), &app.callHunterLost, 10, 120);
+        ImGui::SliderInt(_L("Lost frames"), &app.callHunterLost, 2, 120);
         int activeN = 0;
         for (auto& c : app.callHunterCands)
             if (c.channelId >= 0) ++activeN;

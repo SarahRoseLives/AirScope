@@ -234,26 +234,13 @@ void updateCallHunter(App& app)
         }
     }
 
-    // Presence is decided from the spectrum, NOT the decoder's squelch: the
-    // VHF AM squelch is usually wide open (threshold -120 dB = always open),
-    // so `locked` stays true forever and spawned decoders would never despawn.
+    // Presence is decided purely from the spectrum peak (the spike in the
+    // FFT): once the spike is gone the candidate is lost and its decoder is
+    // removed after `callHunterLost` frames. The detector's squelch can't be
+    // used here (VHF AM squelch defaults to -120 dB = always open).
     for (auto& c : app.callHunterCands)
     {
-        if (c.matched)
-            continue;
-        bool visible = false;
-        if (c.channelId >= 0)
-        {
-            int aboveCnt = 0, inWindow = 0;
-            for (int i = 0; i < v.curN; ++i)
-            {
-                if (std::abs(v.freqMHz[i] - c.freqMHz) > 0.003) continue;
-                ++inWindow;
-                if (v.avg[i] - app.callHunterBaseline[i] >= 3.0f) ++aboveCnt;
-            }
-            visible = (inWindow > 0 && aboveCnt >= inWindow / 4);
-        }
-        if (!visible)
+        if (!c.matched)
         {
             c.confirmCount = 0;
             c.lostCount++;
