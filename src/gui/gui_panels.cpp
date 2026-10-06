@@ -8,6 +8,7 @@
 #include "core/main_funcs.h"
 #include "decode/icao_country.h"
 #include "decode/band_plan.h"
+#include "decode/acars/acars_freqs.h"
 #include "i18n/i18n.h"
 #include "util/log.h"
 #include "version.h"
@@ -264,6 +265,24 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
             if (ImGui::SmallButton(lbl))
                 r.decoders.addDecoder(presets[i] * 1e6, kAcarsBaud);
         }
+
+        if (ImGui::Button("Add standard set (in band)##acstd"))
+        {
+            double fs = running ? r.src->sampleRate() : 0.0;
+            double ctr = r.centerMHz * 1e6;
+            double half = (fs > 0.0) ? fs * 0.5 - 150.0e3 : 1e9;
+            for (int i = 0; i < kNumAcarsFreqs; ++i)
+            {
+                double hz = kAcarsFreqsMHz[i] * 1e6;
+                if (fs <= 0.0 || std::fabs(hz - ctr) <= half)
+                    r.decoders.addDecoder(hz, kAcarsBaud);
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove all##acrm"))
+            r.decoders.removeAll();
+        ImGui::TextDisabled("%d standard channels; in-band ones are added automatically on Start.",
+                            kNumAcarsFreqs);
     }
 
     if (!r.status.empty())

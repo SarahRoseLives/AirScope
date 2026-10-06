@@ -2,10 +2,12 @@
 #include "core/main_funcs.h"
 
 #include "sdr/wav_file_source.h"
+#include "decode/acars/acars_freqs.h"
 #ifdef HAS_AIRSPY
 #include "sdr/airspy_source.h"
 #endif
 
+#include <cmath>
 #include <string>
 
 void updateFeed(App& app)
@@ -131,8 +133,26 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
         r.decoders.start();
         if (feedIqRecorder)
             app.iqRecorder.configurePrebuffer(r.src->sampleRate(), app.iqBufferSec);
-        for (auto& sd : r.savedDecoders)
-            r.decoders.addDecoder(sd.first * 1e6, sd.second);
+
+        if (app.saveDecoders)
+            for (auto& sd : r.savedDecoders)
+                r.decoders.addDecoder(sd.first * 1e6, sd.second);
+
+        // Pre-populate the ACARS receiver with the standard channel set that
+        // fits inside the SDR's bandwidth (only when the user hasn't added any).
+        if (r.role == RxRole::Acars && r.decoders.decoderCount() == 0)
+        {
+            double fs = r.src->sampleRate();
+            double ctr = r.src->centerFreq();
+            double half = fs * 0.5 - 150.0e3;
+            for (int i = 0; i < kNumAcarsFreqs; ++i)
+            {
+                double hz = kAcarsFreqsMHz[i] * 1e6;
+                if (std::fabs(hz - ctr) <= half)
+                    r.decoders.addDecoder(hz, kAcarsBaud);
+            }
+        }
+
         r.lastFeedCount = r.decoders.log().count();
     }
     return ok;
