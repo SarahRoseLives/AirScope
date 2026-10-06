@@ -303,6 +303,13 @@ static int messageScore(const uint8_t* msg, int bits)
     uint32_t syndrome = crcChecksum(msg, bits);
     if (syndrome == 0) return 1000;
 
+    // Only repair the two ADS-B extended-squitter DFs. Their parity is a pure
+    // CRC, so a small syndrome really does mean a correctable bit error. Every
+    // other DF overlays the ICAO address or interrogator code on the parity
+    // (DF0/4/5/11/16/20/21), so "repairing" those just invents frames out of
+    // noise.
+    if (df != 17 && df != 18) return -1;
+
     const ErrorInfo* info = crcDiagnose(syndrome, bits);
     if (info != nullptr && info->errors > 0) return 350 + 150 * info->errors;
     return -1;
@@ -682,6 +689,7 @@ void decode(const RawMessage& raw, Decoded& out)
     out.icao = ((uint32_t)msg[1] << 16) | ((uint32_t)msg[2] << 8) | (uint32_t)msg[3];
 
     uint32_t syndrome = crcChecksum(msg, raw.bits);
+    bool corrected = false;
     if (syndrome == 0)
     {
         out.crc = true;
@@ -694,6 +702,7 @@ void decode(const RawMessage& raw, Decoded& out)
             crcFix(msg, info);
             out.icao = ((uint32_t)msg[1] << 16) | ((uint32_t)msg[2] << 8) | (uint32_t)msg[3];
             out.crc = true;
+            corrected = true;
         }
         else
         {
@@ -705,7 +714,13 @@ void decode(const RawMessage& raw, Decoded& out)
 
     const uint8_t* me = msg + 4;
     if (out.df == 17 || out.df == 18)
+    {
         decodeExtendedSquitter(out, me);
+        // A repaired frame whose type code is reserved is almost certainly a
+        // noise phantom: drop it.
+        if (corrected && (out.meType == 0 || out.meType > 22))
+            out.crc = false;
+    }
 
     std::memcpy(out.raw, msg, kLongMsgBytes);
     out.rawBytes = nbytes;
