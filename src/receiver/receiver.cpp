@@ -60,6 +60,7 @@ std::unique_ptr<SdrSource> makeSdrSource(int mode)
 #else
         return nullptr;
 #endif
+    case kRxDisabled: return nullptr;
     default:        return nullptr;
     }
 }
@@ -72,6 +73,7 @@ const char* rxModeName(int mode)
     case kRxWav:     return "WAV file";
     case kRxAirspy:  return "Airspy";
     case kRxSdrplay: return "SDRplay";
+    case kRxDisabled: return "Disabled";
     default:         return "?";
     }
 }

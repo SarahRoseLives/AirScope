@@ -118,34 +118,42 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
     ImGui::TextUnformatted(hdr);
 
     // Source type.
-    int modeSel = r.mode;
-    const char* modes[4];
+    struct SrcOpt { const char* label; int mode; };
+    SrcOpt opts[6];
     int nm = 0;
-    modes[nm++] = "RTL-SDR";
-    modes[nm++] = "WAV file";
+    opts[nm++] = {"RTL-SDR", kRxRtl};
+    opts[nm++] = {"WAV file", kRxWav};
 #ifdef HAS_AIRSPY
-    modes[nm++] = "Airspy";
+    opts[nm++] = {"Airspy", kRxAirspy};
 #endif
 #ifdef HAS_SDRPLAY
-    modes[nm++] = "SDRplay";
+    opts[nm++] = {"SDRplay", kRxSdrplay};
 #endif
+    // Optional roles (ACARS/ADS-B) can be left unused.
+    if (r.role != RxRole::Voice)
+        opts[nm++] = {"Disabled (unused)", kRxDisabled};
+
+    int modeSel = 0;
+    for (int i = 0; i < nm; ++i)
+        if (opts[i].mode == r.mode) modeSel = i;
+    const char* labels[6];
+    for (int i = 0; i < nm; ++i) labels[i] = opts[i].label;
+
     ImGui::BeginDisabled(running);
-    if (ImGui::Combo("Source", &modeSel, modes, nm))
+    if (ImGui::Combo("Source", &modeSel, labels, nm))
     {
-        // Map combo index back to a mode constant.
-        int map[] = {kRxRtl, kRxWav,
-#ifdef HAS_AIRSPY
-                     kRxAirspy,
-#endif
-#ifdef HAS_SDRPLAY
-                     kRxSdrplay,
-#endif
-        };
-        r.mode = map[std::clamp(modeSel, 0, nm - 1)];
+        r.mode = opts[std::clamp(modeSel, 0, nm - 1)].mode;
         r.src = makeSdrSource(r.mode);
         refreshDevices(r);
     }
     ImGui::EndDisabled();
+
+    if (r.mode == kRxDisabled)
+    {
+        ImGui::TextDisabled("Receiver disabled - it will not start.");
+        ImGui::PopID();
+        return;
+    }
 
     ImGui::TextDisabled(r.wantsSpectrum()
         ? "Spectrum/waterfall shown for this (Voice) receiver."

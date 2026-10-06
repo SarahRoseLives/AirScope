@@ -39,6 +39,12 @@ void updateFeed(App& app)
 
 static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::string& err)
 {
+    if (r.mode == kRxDisabled)
+    {
+        r.status = "Disabled";
+        return true; // intentionally unused, not an error
+    }
+
     r.view.ring.clear();
     r.view.waterfall.clear();
     r.view.resetView = true;
@@ -174,6 +180,11 @@ void startAll(App& app)
     {
         if (!rp)
             continue;
+        if (rp->mode == kRxDisabled)
+        {
+            rp->status = "Disabled";
+            continue;
+        }
         std::string err;
         bool feedIq = (rp == app.rx.front());
         bool ok = startReceiver(app, *rp, feedIq, err);
@@ -182,7 +193,7 @@ void startAll(App& app)
         else lastErr = err;
     }
     app.status = anyOk ? (lastErr.empty() ? "Running" : "Running (some sources failed)")
-                       : ("Error: " + lastErr);
+                       : (lastErr.empty() ? "Disabled" : ("Error: " + lastErr));
 }
 
 void stopAll(App& app)

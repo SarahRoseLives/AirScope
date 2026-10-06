@@ -24,10 +24,11 @@
 #include <vector>
 
 // Receiver source modes.
-constexpr int kRxRtl     = 0;
-constexpr int kRxWav     = 1;
-constexpr int kRxAirspy  = 2;
-constexpr int kRxSdrplay = 3;
+constexpr int kRxRtl      = 0;
+constexpr int kRxWav      = 1;
+constexpr int kRxAirspy   = 2;
+constexpr int kRxSdrplay  = 3;
+constexpr int kRxDisabled = 4; // role intentionally unused
 
 // Fixed receiver roles. The user picks which SDR fills each role.
 enum class RxRole { Voice, Acars, Adsb };
