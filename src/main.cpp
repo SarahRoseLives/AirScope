@@ -141,6 +141,21 @@ int main(int, char**)
     io.IniFilename = "airscope.ini";
     ImGui::LoadIniSettingsFromDisk(io.IniFilename);
 
+    // The ADS-B role only works at 1090 MHz / 2.4 MS/s, so pin those after the
+    // saved config is loaded (the user still picks the SDR and gain).
+    for (auto& rp : app.rx)
+    {
+        if (rp->role != RxRole::Adsb)
+            continue;
+        rp->centerMHz = 1090.0;
+        if (rp->mode == kRxRtl)
+            rp->rateIdx = 9; // 2.4 MHz (kRates)
+        else if (rp->mode == kRxSdrplay)
+            rp->spRateIdx = 1; // 3.0 MHz (closest available)
+        else if (rp->mode == kRxAirspy)
+            rp->apRateIdx = 0; // 2.5 MHz
+    }
+
     if (app.lightMode)
     {
         ImGui::StyleColorsLight();

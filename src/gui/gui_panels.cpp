@@ -774,7 +774,7 @@ void drawDecoders(App& app)
 
     struct Row { Receiver* r; DecoderManager::Status s; };
     std::vector<Row> rows;
-    int subbands = 0, threads = 0;
+    int subbands = 0, threads = 0, adsbN = 0;
     uint64_t drops = 0;
     for (auto& rp : app.rx)
     {
@@ -784,8 +784,10 @@ void drawDecoders(App& app)
         subbands += rp->decoders.subbandCount();
         threads += rp->decoders.workerCount();
         drops += rp->decoders.drops();
+        if (rp->adsb && rp->running()) ++adsbN;
     }
-    ImGui::Text("%d active  |  %d sub-band(s)  %d threads", (int)rows.size(), subbands, threads);
+    ImGui::Text("%d active  |  %d ADS-B  |  %d sub-band(s)  %d threads",
+                (int)rows.size(), adsbN, subbands, threads);
     ImGui::SameLine();
     if (drops > 0)
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "  drops: %llu", (unsigned long long)drops);
@@ -864,6 +866,35 @@ void drawDecoders(App& app)
         Receiver* toRemoveRx = nullptr;
         int toRemove = -1;
         std::vector<std::string> copyRows;
+
+        // ADS-B pseudo-decoder rows (one per ADS-B receiver).
+        for (auto& rp : app.rx)
+        {
+            if (!rp || !rp->adsb)
+                continue;
+            auto s = rp->adsb->stats();
+            int rxNo = (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                [&](const std::unique_ptr<Receiver>& p){ return p.get() == rp.get(); }) -
+                app.rx.begin()) + 1;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", rxNo);
+            ImGui::TableNextColumn();
+            ImVec4 ac = rp->running() ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
+                                      : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+            ImGui::TextColored(ac, "%s", rp->running() ? "LOCK" : "--");
+            ImGui::TableNextColumn();
+            ImGui::Text("%.4f", rp->centerMHz);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("ADS-B");
+            ImGui::TableNextColumn();
+            ImGui::Text("%llu", (unsigned long long)s.good);
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%d ac", rp->adsb->aircraftCount());
+            copyRows.push_back(copyFmt("%.4f\tADS-B\t%llu", rp->centerMHz,
+                (unsigned long long)s.good));
+        }
+
         for (auto& row : rows)
         {
             auto& d = row.s;
