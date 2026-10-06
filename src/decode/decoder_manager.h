@@ -78,6 +78,9 @@ public:
     bool recording() const { return recordOn_; }
     int  recordingCount();
 
+    // Voice squelch threshold (dBFS); very low = always open.
+    void setSquelchDb(double d);
+
     // Audio output device selection (index 0 = system default).
     std::vector<std::string> audioDevices() { return audio_.listDevices(); }
     void setAudioDevice(int index) { audio_.setDevice(index); }
@@ -138,4 +141,5 @@ private:
     bool recordOn_ = false;
     std::string recordDir_ = "recordings";
     RecordFormat recordFmt_ = RecordFormat::WAV;
+    double squelchDb_ = -120.0;
 };

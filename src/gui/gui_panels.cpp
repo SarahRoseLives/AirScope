@@ -587,7 +587,9 @@ void drawSpectrum(App& app, Receiver& r, int idx, bool voiceView)
             {
                 app.placingDecoder = false;
                 int baud = (r.role == RxRole::Acars) ? kAcarsBaud : kVoiceBaud;
-                r.decoders.addDecoder(mp.x * 1e6, baud);
+                int id = r.decoders.addDecoder(mp.x * 1e6, baud);
+                if (id >= 0 && baud == kVoiceBaud)
+                    r.decoders.setVoiceMonitor(id);
             }
         }
         else if (app.placingDecoder && app.placingRx == idx)
@@ -794,6 +796,10 @@ void drawDecoders(App& app)
     }
     ImGui::SetNextItemWidth(-90.0f);
     ImGui::InputText("Folder", app.recordDir, sizeof(app.recordDir));
+    if (ImGui::SliderFloat("Squelch (dBFS)", &app.voiceSquelchDb, -120.0f, -20.0f, "%.0f"))
+        for (auto& rp : app.rx) rp->decoders.setSquelchDb(app.voiceSquelchDb);
+    ImGui::SameLine();
+    ImGui::TextDisabled("(very low = always open)");
     ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
     ImGui::Separator();

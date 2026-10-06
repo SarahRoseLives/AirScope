@@ -51,6 +51,7 @@ public:
     void setRecording(bool on, const std::string& dir, RecordFormat fmt = RecordFormat::WAV);
     bool recordingNow() const;
     const std::string& recordingPath() const;
+    void setSquelchDb(double d);
 
 private:
     void onAcarsMsg(const AcarsMsg& m);

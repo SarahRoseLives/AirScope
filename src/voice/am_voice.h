@@ -30,6 +30,9 @@ public:
     void setMonitored(bool on) { monitored_ = on; }
     bool monitored() const { return monitored_; }
 
+    // Squelch threshold in dBFS (very low = always open).
+    void setSquelchDb(double d) { squelchDb_ = d; }
+
     void setRecording(bool on, const std::string& dir, RecordFormat fmt);
     bool recordingNow() const { return recOpen_; }
     const std::string& recordingPath() const { return recPath_; }
@@ -49,6 +52,7 @@ private:
     double sigSq_ = 0.0;   // running power for squelch
     int    sigN_ = 0;
     double agcPeak_ = 1e-4;
+    double squelchDb_ = -120.0;
     double noiseDb_ = -120.0;
     bool   sqlOpen_ = false;
     int    sqlHold_ = 0;   // samples until close

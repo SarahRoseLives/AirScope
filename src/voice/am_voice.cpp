@@ -56,24 +56,23 @@ void AmVoiceDecoder::process(const float* env, int n)
             continue;
         phase_ -= inRate_;
 
-        // Update squelch / noise floor roughly every 20 ms.
+        // Update squelch / level roughly every 20 ms.
         if (sigN_ >= 160)
         {
             double rms = std::sqrt(sigSq_ / (double)sigN_);
             sigDb_ = 20.0 * std::log10(rms + 1e-9);
-            if (sigDb_ < noiseDb_)
-                noiseDb_ = sigDb_;
-            else
-                noiseDb_ = std::min(noiseDb_ + 0.4, sigDb_);
             sigSq_ = 0.0;
             sigN_ = 0;
 
-            if (sigDb_ > noiseDb_ + 6.0)
+            // Manual threshold squelch with a little hysteresis. A very low
+            // threshold (the default) keeps the channel permanently open,
+            // which is what you want for continuous broadcasts.
+            if (sigDb_ > squelchDb_ + 2.0)
             {
                 sqlOpen_ = true;
                 sqlHold_ = 30; // ~0.6 s hang
             }
-            else if (sigDb_ < noiseDb_ + 3.0)
+            else if (sigDb_ < squelchDb_ - 2.0)
             {
                 if (sqlHold_ > 0) --sqlHold_;
                 if (sqlHold_ == 0) sqlOpen_ = false;

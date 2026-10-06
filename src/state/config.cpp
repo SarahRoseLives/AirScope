@@ -53,6 +53,7 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
 
     WI(newBaud); WI(fftSizeIdx);
     WI(audioDevice); WI(voiceMuted); WI(cpuReduce);
+    WF(voiceSquelchDb);
     WI(logToDb); WI(maxDbAgeDays);
     WI(webServerEnabled); WI(webServerPort);
     WF(iqBufferSec);
@@ -156,6 +157,7 @@ void cfgReadLine(App& app, const char* line)
 #define RS(f) if (!std::strcmp(key, #f)) { std::strncpy(app.f, val, sizeof(app.f) - 1); app.f[sizeof(app.f) - 1] = 0; return; }
     RI(newBaud); RI(fftSizeIdx);
     RI(audioDevice); RB(voiceMuted); RB(cpuReduce);
+    RF(voiceSquelchDb);
     RB(logToDb); RI(maxDbAgeDays);
     RB(webServerEnabled); RI(webServerPort);
     RF(iqBufferSec);

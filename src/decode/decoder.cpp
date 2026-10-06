@@ -128,6 +128,11 @@ const std::string& Decoder::recordingPath() const
     return am_ ? am_->recordingPath() : empty;
 }
 
+void Decoder::setSquelchDb(double d)
+{
+    if (am_) am_->setSquelchDb(d);
+}
+
 void Decoder::onAcarsMsg(const AcarsMsg& a)
 {
     DecodedMessage m;

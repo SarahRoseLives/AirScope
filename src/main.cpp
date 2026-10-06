@@ -203,6 +203,7 @@ int main(int, char**)
             rp->src = makeSdrSource(rp->mode);
         rp->decoders.setMessageStore(&app.writeDb);
         rp->decoders.setAudioDevice(app.audioDevice);
+        rp->decoders.setSquelchDb(app.voiceSquelchDb);
         rp->decoders.setAudioEnabled(i == 0); // one audio device only
         rp->decoders.voiceCallLog().scanDir(app.recordDir);
         rp->devices = rp->src ? rp->src->listDevices() : std::vector<SdrDeviceInfo>{};
