@@ -1,45 +1,40 @@
 # AirScope
 
-One desktop application for VHF airband monitoring: **ACARS**, **voice**, and
-**1090 MHz ADS-B** decoded together, with aircraft locations on a live map.
+One desktop app for VHF airband monitoring and 1090 MHz ADS-B. It runs three
+receivers at once, each filled by whichever SDR you plug in:
 
-AirScope is built on the former InmarScope codebase (an Inmarsat satellite
-decoder). It is being retargeted to the VHF airband and ADS-B. Three fixed
-receiver roles run concurrently, each filled by any supported SDR chosen by
-the user:
+| Receiver | Role | Notes |
+|---|---|---|
+| 1 | **Voice** | Airband AM voice — the only one with a live spectrum/waterfall |
+| 2 | **ACARS** | VHF ACARS (2400 bps MSK + ARINC-618) — headless |
+| 3 | **ADS-B** | 1090 MHz Mode-S / ADS-B — headless |
 
-- **Receiver 1 — Voice**: airband AM voice, with the only interactive
-  spectrum/waterfall.
-- **Receiver 2 — ACARS/DATA**: VHF ACARS (2400 bps MSK), runs headless.
-- **Receiver 3 — ADS-B**: 1090 MHz Mode-S, decoded with algorithms ported from
-  [goadsb](https://github.com/SarahRoseLives/goadsb); runs headless.
+Any role can use an **RTL-SDR**, **Airspy**, **SDRplay** (RSP1A/RSP2/RSPduo/
+RSPdx), or a **WAV** file. Roles you don't need (2 and 3) can be set to
+**Disabled**.
 
-Each role can use an **Airspy**, **SDRplay** (RSP1A/RSP2/RSPduo/RSPdx),
-**RTL-SDR**, or a **WAV** file.
+Built in C++17 with Dear ImGui / ImPlot and OpenGL. AirScope started life as
+InmarScope (an Inmarsat decoder); the satellite path has been removed and the
+code retargeted to the airband and ADS-B.
 
-> Status: **early development.** The inherited InmarScope codebase is being
-> retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed, and
-> the source layer runs three fixed receiver roles concurrently (Voice,
-> ACARS/DATA, ADS-B), each filled by an RTL-SDR, Airspy, SDRplay or WAV. The
-> VHF ACARS decoder (2400 bps MSK + ARINC-618) and the VHF AM voice decoder
-> (squelch + listen/record) are in place; ADS-B is next.
+## Features
 
-## Planned features
-
-- **VHF ACARS** — 2400 bps MSK demodulation and ARINC-618 framing, with
-  application decoding (CPDLC / ADS-C / MIAM) via libacars
-- **VHF voice** — AM demodulation, squelch, live listen and WAV/OGG recording
-- **1090 ADS-B** — Mode-S demodulation, CRC correction, DF17/18 decoding, and
-  CPR position tracking
-- **Live spectrum & waterfall** for voice channel placement
-- **Unified aircraft list & map** merging ACARS ADS-C and ADS-B positions
-- **SBS/BaseStation + Beast output** for virtual radar clients
-- **Persistent message archive** (SQLite) and web dashboard
+- **ACARS** decoding with application layer output (CPDLC / ADS-C / MIAM) via
+  libacars
+- **AM voice** with squelch, live listening and WAV/OGG recording
+- **Voice scanner** — watches the spectrum and automatically opens a decoder on
+  each new voice call, following the active one and closing it when it ends
+- **ADS-B** — Mode-S demodulation, 1/2-bit CRC repair, DF17/18 decoding and CPR
+  position tracking
+- **Aircraft table and live map**, merged from ACARS and ADS-B positions
+- **Beast** and **SBS/BaseStation** output for virtual-radar clients
+- **Persistent archive** (SQLite) and a built-in web dashboard
 
 ## Building
 
-AirScope supports Windows (MSYS2 MINGW64) and Linux (Debian/Ubuntu, Arch,
-Fedora). See [COMPILE.md](COMPILE.md).
+Needs CMake, Ninja and a C++17 compiler; see [COMPILE.md](COMPILE.md) for the
+per-platform dependencies (librtlsdr, libacars, and optionally libairspy /
+sdrplay).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -47,7 +42,18 @@ ninja -C build
 ./build/AirScope
 ```
 
-## License
+## Using it
 
-GNU General Public License v3.0 — see [LICENSE](LICENSE).
-The ported `goadsb` ADS-B code is MIT-licensed and compatible with the GPL.
+1. Pick a source for each receiver (or set 2/3 to *Disabled*).
+2. Press **Start**.
+3. On the Voice receiver, **Ctrl+click the spectrum** to add a channel, or turn
+   on the **Voice Scanner** to find calls automatically.
+
+Settings (tuning, gain, squelch, scanner, output, layout…) are saved to
+`airscope.ini` and restored on restart.
+
+## Credits & license
+
+AirScope is **GPLv3** — see [LICENSE](LICENSE). The ADS-B decoder is ported
+from [goadsb](https://github.com/SarahRoseLives/goadsb) (MIT, itself derived
+from dump1090) and the ACARS decoder from acarsdec; both are GPL-compatible.
