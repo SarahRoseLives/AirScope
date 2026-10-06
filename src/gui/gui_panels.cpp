@@ -1404,13 +1404,12 @@ void drawVoiceCalls(App& app)
     else
         ImGui::TextDisabled("  Idle");
 
-    if (ImGui::BeginTable("##vclist", 5,
+    if (ImGui::BeginTable("##vclist", 4,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                           ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
     {
         ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 68);
         ImGui::TableSetupColumn("Freq", ImGuiTableColumnFlags_WidthFixed, 78);
-        ImGui::TableSetupColumn("ICAO", ImGuiTableColumnFlags_WidthFixed, 64);
         ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed, 72);
         ImGui::TableSetupColumn(">");
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -1433,15 +1432,10 @@ void drawVoiceCalls(App& app)
             ImGui::TableNextColumn();
             ImGui::Text("%.4f", c.freqMHz);
             ImGui::TableNextColumn();
-            if (!c.icao.empty())
-                ImGui::TextColored(Lc(app, ImVec4(1.0f, 0.85f, 0.3f, 1.0f)), "%s", c.icao.c_str());
-            else if (c.aesId)
-                ImGui::TextDisabled("%06X", c.aesId);
-            else
-                ImGui::TextUnformatted("--");
-            ImGui::TableNextColumn();
-            if (c.recording)
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Rec");
+            if (c.recording && !c.filename.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "REC");
+            else if (c.recording)
+                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f), "Live");
             else if (c.durationSec > 0.0)
             {
                 int m = (int)c.durationSec / 60;
@@ -1462,10 +1456,8 @@ void drawVoiceCalls(App& app)
                 else if (!c.filename.empty())
                     app.audioPlayer.play(std::string(app.recordDir) + "/" + c.filename);
             }
-            copyRows.push_back(copyFmt("%02d:%02d:%02d\t%.4f\t%s\t%s",
-                tm.tm_hour, tm.tm_min, tm.tm_sec, c.freqMHz,
-                c.icao.empty() ? (c.aesId ? copyFmt("%06X", c.aesId).c_str() : "--") : c.icao.c_str(),
-                c.filename.c_str()));
+            copyRows.push_back(copyFmt("%02d:%02d:%02d\t%.4f\t%s",
+                tm.tm_hour, tm.tm_min, tm.tm_sec, c.freqMHz, c.filename.c_str()));
             rowIdx++;
         }
         handleTableCopy(copyRows);
