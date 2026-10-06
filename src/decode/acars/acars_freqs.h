@@ -13,3 +13,15 @@ static const double kAcarsFreqsMHz[] = {
     136.900, 136.925, 136.950, 136.975,
 };
 static constexpr int kNumAcarsFreqs = (int)(sizeof(kAcarsFreqsMHz) / sizeof(kAcarsFreqsMHz[0]));
+
+// The most commonly used ACARS channels — auto-populated by default.
+static const double kAcarsCommonFreqsMHz[] = {
+    131.550,  //  1: primary North America
+    131.725,  //  2: primary Europe
+    131.525,  //  3
+    131.825,  //  4
+    130.025,  //  5
+};
+static constexpr int kNumAcarsCommon =
+    (int)(sizeof(kAcarsCommonFreqsMHz) / sizeof(kAcarsCommonFreqsMHz[0]));
+

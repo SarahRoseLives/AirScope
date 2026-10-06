@@ -255,33 +255,36 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
         ImGui::SameLine();
         ImGui::TextDisabled("(add multiple; all within the SDR bandwidth)");
 
-        static const double presets[] = {131.550, 131.725, 131.825, 131.525,
-                                         130.025, 130.450, 131.125, 131.475};
+        static const double presets[] = {131.550, 131.725, 131.525, 131.825, 130.025};
         for (size_t i = 0; i < sizeof(presets) / sizeof(presets[0]); ++i)
         {
             char lbl[32];
             std::snprintf(lbl, sizeof(lbl), "%.3f##acp%zu", presets[i], i);
-            if (i % 4 != 0) ImGui::SameLine();
+            if (i != 0) ImGui::SameLine();
             if (ImGui::SmallButton(lbl))
                 r.decoders.addDecoder(presets[i] * 1e6, kAcarsBaud);
         }
 
-        if (ImGui::Button("Add standard set (in band)##acstd"))
-        {
+        auto addInBand = [&](const double* freqs, int n) {
             double fs = running ? r.src->sampleRate() : 0.0;
             double ctr = r.centerMHz * 1e6;
             double half = (fs > 0.0) ? fs * 0.5 - 150.0e3 : 1e9;
-            for (int i = 0; i < kNumAcarsFreqs; ++i)
+            for (int i = 0; i < n; ++i)
             {
-                double hz = kAcarsFreqsMHz[i] * 1e6;
+                double hz = freqs[i] * 1e6;
                 if (fs <= 0.0 || std::fabs(hz - ctr) <= half)
                     r.decoders.addDecoder(hz, kAcarsBaud);
             }
-        }
+        };
+        if (ImGui::Button("Add common (5)##acc"))
+            addInBand(kAcarsCommonFreqsMHz, kNumAcarsCommon);
+        ImGui::SameLine();
+        if (ImGui::Button("Add full scan set##acf"))
+            addInBand(kAcarsFreqsMHz, kNumAcarsFreqs);
         ImGui::SameLine();
         if (ImGui::SmallButton("Remove all##acrm"))
             r.decoders.removeAll();
-        ImGui::TextDisabled("%d standard channels; in-band ones are added automatically on Start.",
+        ImGui::TextDisabled("5 common channels auto-added on Start (full set = %d).",
                             kNumAcarsFreqs);
     }
 

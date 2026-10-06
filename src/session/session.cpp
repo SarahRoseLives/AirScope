@@ -138,16 +138,16 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
             for (auto& sd : r.savedDecoders)
                 r.decoders.addDecoder(sd.first * 1e6, sd.second);
 
-        // Pre-populate the ACARS receiver with the standard channel set that
-        // fits inside the SDR's bandwidth (only when the user hasn't added any).
+        // Pre-populate the ACARS receiver with the most common channels that
+        // fit inside the SDR bandwidth (only when the user hasn't added any).
         if (r.role == RxRole::Acars && r.decoders.decoderCount() == 0)
         {
             double fs = r.src->sampleRate();
             double ctr = r.src->centerFreq();
             double half = fs * 0.5 - 150.0e3;
-            for (int i = 0; i < kNumAcarsFreqs; ++i)
+            for (int i = 0; i < kNumAcarsCommon; ++i)
             {
-                double hz = kAcarsFreqsMHz[i] * 1e6;
+                double hz = kAcarsCommonFreqsMHz[i] * 1e6;
                 if (std::fabs(hz - ctr) <= half)
                     r.decoders.addDecoder(hz, kAcarsBaud);
             }
