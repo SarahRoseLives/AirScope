@@ -112,6 +112,7 @@ add_executable(AirScope
     src/dsp/jfft.cpp
     src/decode/decoder.cpp
     src/decode/decoder_manager.cpp
+    src/decode/acars/acars_decoder.cpp
     src/decode/acars_apps.cpp
     src/decode/icao_country.cpp
     src/decode/band_plan.cpp

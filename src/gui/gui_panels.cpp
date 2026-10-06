@@ -240,6 +240,32 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
             if (running) r.src->setPpm((double)r.ppm);
     }
 
+    // ACARS channels (headless receiver).
+    if (r.role == RxRole::Acars)
+    {
+        ImGui::Separator();
+        ImGui::TextUnformatted("ACARS channels");
+        static double newFreq = 131.550;
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::InputDouble("MHz##acarsfreq", &newFreq, 0.025, 0.1, "%.3f");
+        ImGui::SameLine();
+        if (ImGui::Button("Add##acarsadd"))
+            r.decoders.addDecoder(newFreq * 1e6, kAcarsBaud);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(add multiple; all within the SDR bandwidth)");
+
+        static const double presets[] = {131.550, 131.725, 131.825, 131.525,
+                                         130.025, 130.450, 131.125, 131.475};
+        for (size_t i = 0; i < sizeof(presets) / sizeof(presets[0]); ++i)
+        {
+            char lbl[32];
+            std::snprintf(lbl, sizeof(lbl), "%.3f##acp%zu", presets[i], i);
+            if (i % 4 != 0) ImGui::SameLine();
+            if (ImGui::SmallButton(lbl))
+                r.decoders.addDecoder(presets[i] * 1e6, kAcarsBaud);
+        }
+    }
+
     if (!r.status.empty())
         ImGui::TextDisabled("%s", r.status.c_str());
     ImGui::PopID();

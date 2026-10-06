@@ -135,7 +135,7 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
         {
             if (sb != bestSb) continue;
             sb->decoders.emplace_back(std::make_shared<Decoder>(
-                sb->subRate, sb->centerHz, freqHz, baud, id));
+                sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_));
             bestW->count.fetch_add(1);
             bestW->weight.fetch_add(1);
             return id;
@@ -155,7 +155,7 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
     std::lock_guard<std::mutex> lk(best->dMtx);
     auto sb = std::make_shared<SubBand>(Fs_, centerHz_, freqHz, kSubRateTarget, kSubBW);
     sb->decoders.emplace_back(std::make_shared<Decoder>(
-        sb->subRate, sb->centerHz, freqHz, baud, id));
+        sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &acTable_));
     best->subbands.push_back(std::move(sb));
     best->count.fetch_add(1);
     best->weight.fetch_add(1);
