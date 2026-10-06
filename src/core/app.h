@@ -49,6 +49,7 @@ struct App
     int  audioDevice = 0;
     bool voiceMuted = false;
     float voiceSquelchDb = -120.0f; // dBFS; very low = always open
+    float voiceVolume = 1.5f;
     bool cpuReduce = false;
     bool showAbout = false;
     bool webServerEnabled = false;

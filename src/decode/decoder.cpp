@@ -133,6 +133,11 @@ void Decoder::setSquelchDb(double d)
     if (am_) am_->setSquelchDb(d);
 }
 
+void Decoder::setVolume(float v)
+{
+    if (am_) am_->setVolume(v);
+}
+
 void Decoder::onAcarsMsg(const AcarsMsg& a)
 {
     DecodedMessage m;

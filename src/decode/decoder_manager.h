@@ -80,6 +80,7 @@ public:
 
     // Voice squelch threshold (dBFS); very low = always open.
     void setSquelchDb(double d);
+    void setVolume(float v);
 
     // Audio output device selection (index 0 = system default).
     std::vector<std::string> audioDevices() { return audio_.listDevices(); }
@@ -142,4 +143,5 @@ private:
     std::string recordDir_ = "recordings";
     RecordFormat recordFmt_ = RecordFormat::WAV;
     double squelchDb_ = -120.0;
+    float  volume_ = 1.0f;
 };

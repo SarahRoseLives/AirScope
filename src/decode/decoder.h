@@ -52,6 +52,7 @@ public:
     bool recordingNow() const;
     const std::string& recordingPath() const;
     void setSquelchDb(double d);
+    void setVolume(float v);
 
 private:
     void onAcarsMsg(const AcarsMsg& m);

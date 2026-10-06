@@ -143,6 +143,7 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
                 if (voiceMonitorId_ < 0) { dec->setMonitored(true); voiceMonitorId_ = id; }
                 dec->setRecording(recordOn_, recordDir_, recordFmt_);
                 dec->setSquelchDb(squelchDb_);
+                dec->setVolume(volume_);
             }
             sb->decoders.push_back(dec);
             bestW->count.fetch_add(1);
@@ -171,6 +172,7 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
         if (voiceMonitorId_ < 0) { dec->setMonitored(true); voiceMonitorId_ = id; }
         dec->setRecording(recordOn_, recordDir_, recordFmt_);
         dec->setSquelchDb(squelchDb_);
+        dec->setVolume(volume_);
     }
     sb->decoders.push_back(dec);
     best->subbands.push_back(std::move(sb));
@@ -288,6 +290,19 @@ void DecoderManager::setSquelchDb(double d)
             for (auto& dec : sb->decoders)
                 if (dec->isVoice())
                     dec->setSquelchDb(d);
+    }
+}
+
+void DecoderManager::setVolume(float v)
+{
+    volume_ = v;
+    for (auto& w : workers_)
+    {
+        std::lock_guard<std::mutex> lk(w->dMtx);
+        for (auto& sb : w->subbands)
+            for (auto& dec : sb->decoders)
+                if (dec->isVoice())
+                    dec->setVolume(v);
     }
 }
 

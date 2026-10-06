@@ -800,6 +800,8 @@ void drawDecoders(App& app)
         for (auto& rp : app.rx) rp->decoders.setSquelchDb(app.voiceSquelchDb);
     ImGui::SameLine();
     ImGui::TextDisabled("(very low = always open)");
+    if (ImGui::SliderFloat("Volume", &app.voiceVolume, 0.1f, 5.0f, "%.2fx"))
+        for (auto& rp : app.rx) rp->decoders.setVolume(app.voiceVolume);
     ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
     ImGui::Separator();

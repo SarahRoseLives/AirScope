@@ -79,18 +79,19 @@ void AmVoiceDecoder::process(const float* env, int n)
             }
         }
 
-        // Simple peak AGC to keep loudness consistent.
+        // Simple peak AGC to keep loudness consistent, normalised near full
+        // scale, then scaled by the user volume.
         double a = std::fabs(y);
         if (a > agcPeak_) agcPeak_ = a;
         else              agcPeak_ *= 0.99995;
-        if (agcPeak_ < 1e-4) agcPeak_ = 1e-4;
-        double gain = 0.25 / agcPeak_;
-        if (gain > 50.0) gain = 50.0;
-        double s = y * gain;
+        if (agcPeak_ < 1e-5) agcPeak_ = 1e-5;
+        double gain = 0.9 / agcPeak_;
+        if (gain > 500.0) gain = 500.0;
+        double s = y * gain * (double)volume_;
         if (s > 1.0) s = 1.0;
         if (s < -1.0) s = -1.0;
 
-        pcm_[nout++] = (int16_t)std::lround(s * 30000.0);
+        pcm_[nout++] = (int16_t)std::lround(s * 32000.0);
         if (nout >= (int)(sizeof(pcm_) / sizeof(pcm_[0])))
         {
             // Flush a full buffer mid-call.

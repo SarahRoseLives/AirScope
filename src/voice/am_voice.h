@@ -32,6 +32,8 @@ public:
 
     // Squelch threshold in dBFS (very low = always open).
     void setSquelchDb(double d) { squelchDb_ = d; }
+    // Monitor volume multiplier.
+    void setVolume(float v) { volume_ = v; }
 
     void setRecording(bool on, const std::string& dir, RecordFormat fmt);
     bool recordingNow() const { return recOpen_; }
@@ -54,6 +56,7 @@ private:
     double agcPeak_ = 1e-4;
     double squelchDb_ = -120.0;
     double noiseDb_ = -120.0;
+    float  volume_ = 1.0f;
     bool   sqlOpen_ = false;
     int    sqlHold_ = 0;   // samples until close
     double sigDb_ = -120.0;
