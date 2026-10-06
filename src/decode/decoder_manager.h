@@ -1,7 +1,7 @@
-// Owns the active decoders, grouped into sub-bands. A sub-band decimates the
-// wideband stream ONCE (shared front-end) to a moderate IF; its decoders then
-// run cheap per-channel DDCs from that IF. Decoders far apart in frequency get
-// their own sub-band. Sub-bands are spread across a worker-thread pool.
+// Owns the active channel decoders, grouped into sub-bands. A sub-band
+// decimates the wideband stream ONCE (shared front-end) to a moderate IF; its
+// decoders then run cheap per-channel DDCs from that IF. Decoders far apart in
+// frequency get their own sub-band. Sub-bands are spread across a worker pool.
 #pragma once
 
 #include "decode/decoder.h"
@@ -15,6 +15,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -29,12 +30,7 @@ public:
         bool locked;
         double ebno;
         uint64_t msgs;
-        int egcBer;     // -1 unless EGC
-        int egcFrames;  // 0 unless EGC
-        int egcCType;   // 0=unknown, 1=NCS, 2=LES TDM, 3=Joint, 4=Standby
-        bool monitored = false; // audio routed to speakers
-        bool isVoice   = false; // 8400 voice decoder
-        bool isB       = false; // from decodersB (dual RTL)
+        bool isB = false; // set by the caller for the secondary receiver
     };
 
     ~DecoderManager() { stop(); }
@@ -60,27 +56,17 @@ public:
 
     std::vector<Status> status();
     int getConstellation(int channelId, std::vector<float>& out, int maxPairs);
-    // Number of decoded AMBE voice frames for a channel (voice-follow activity).
-    uint64_t voiceFrames(int channelId);
     uint64_t drops() const { return drops_.load(); }
     MessageLog& log() { return log_; }
-    MessageLog& suLog() { return suLog_; }
-    CassignLog& cassignLog() { return cassign_; }
-    ChannelTable& channelTable() { return netTable_; }
-    EgcLog& egcLog() { return egcLog_; }
-    MesLog& mesLog() { return mesLog_; }
-    LesLog& lesLog() { return lesLog_; }
     AircraftTable& aircraftTable() { return acTable_; }
     const AircraftTable& aircraftTable() const { return acTable_; }
     VoiceCallLog& voiceCallLog() { return voiceCallLog_; }
-    LesFreqTable& lesFreqTable() { return lesFreqTable_; }
 
-    // Voice: route one 8400 decoder's audio to the speakers.
-    void setVoiceMonitor(int channelId);
-    int  voiceMonitor() const { return voiceMonitorId_; }
-    uint32_t voiceAes() const;  // AES of the currently monitored voice decoder
-    void autoMonitor(const std::vector<std::string>& blacklistCountries = {}); // Skip blacklisted
-    float audioLevel() { return audio_.level(); }
+    // Forward cpuReduce to all decoders (currently inert).
+    void setCpuReduce(bool on) { (void)on; }
+
+    // Persistence: forward the SQLite store to all message logs.
+    void setMessageStore(MessageStore* s);
 
     // Audio output device selection (index 0 = system default).
     std::vector<std::string> audioDevices() { return audio_.listDevices(); }
@@ -88,21 +74,7 @@ public:
     int  audioDevice() { return audio_.currentDevice(); }
     void setVoiceMute(bool m) { audio_.setMuted(m); }
     bool voiceMuted() const { return audio_.muted(); }
-
-    // Forward cpuReduce to all decoders.
-    void setCpuReduce(bool on);
-
-    // Persistence: forward the SQLite store to all message logs.
-    void setMessageStore(MessageStore* s);
-
-    // Voice call recording: every 8400 decoder writes its calls to WAV files
-    // (one per call) in dir, independent of which channel is being monitored.
-    void setRecording(bool on, const std::string& dir);
-    void setRecordFormat(RecordFormat fmt);
-    bool recording() const { return recordOn_; }
-    const std::string& recordDir() const { return recordDir_; }
-    RecordFormat recordFormat() const { return recordFmt_; }
-    int  recordingCount(); // decoders with a call file currently open
+    float audioLevel() { return audio_.level(); }
 
 private:
     struct SubBand
@@ -130,7 +102,7 @@ private:
         std::mutex dMtx; // guards subbands
         std::vector<std::shared_ptr<SubBand>> subbands;
         std::atomic<int> count{0};   // total decoders on this worker
-        std::atomic<int> weight{0};  // weighted load (MSK=3, OQPSK=2, EGC=1)
+        std::atomic<int> weight{0};  // weighted load
     };
 
     void workerLoop(Worker* w);
@@ -147,20 +119,9 @@ private:
     std::atomic<uint64_t> drops_{0};
     static constexpr size_t kMaxQueue = 192;
     MessageLog log_;
-    MessageLog suLog_;
-    CassignLog cassign_;
-    ChannelTable netTable_;
-    EgcLog egcLog_;
-    MesLog mesLog_;
-    LesLog lesLog_;
     AircraftTable acTable_;
     VoiceCallLog voiceCallLog_;
-    LesFreqTable lesFreqTable_;
     AudioOutput audio_;
-    int voiceMonitorId_ = -1;
-    bool recordOn_ = false;
-    std::string recordDir_ = "recordings";
-    RecordFormat recordFmt_ = RecordFormat::WAV;
     bool audioEnabled_ = true;
     int maxWorkers_ = 8;
 };

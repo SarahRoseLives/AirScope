@@ -1,34 +1,9 @@
-#include "imgui.h"
-#include "imgui_internal.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include "implot.h"
-#include <GLFW/glfw3.h>
 #include "core/app.h"
 #include "core/main_funcs.h"
-#include "decode/icao_country.h"
-#include "util/log.h"
-#include "version.h"
-#include "gui/waterfall.h"
-#include <algorithm>
+
 #include <chrono>
-#include <cmath>
-#include <complex>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <string>
 #include <thread>
-#include <utility>
-#include <vector>
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <shellapi.h>
-#endif
 
 void updateFeed(App& app)
 {
@@ -49,28 +24,6 @@ void updateFeed(App& app)
         for (size_t i = snap.size() - (size_t)newN; i < snap.size(); ++i)
             app.feed.feedAcars(snap[i]);
         app.lastAcarsFed = at;
-    }
-    auto& elog = app.decoders.egcLog();
-    uint64_t et = elog.count();
-    if (et > app.lastEgcFed)
-    {
-        auto snap = elog.snapshot();
-        uint64_t newN = et - app.lastEgcFed;
-        if (newN > snap.size()) newN = snap.size();
-        for (size_t i = snap.size() - (size_t)newN; i < snap.size(); ++i)
-            app.feed.feedEgc(snap[i]);
-        app.lastEgcFed = et;
-    }
-    auto& llog = app.decoders.lesLog();
-    uint64_t lt = llog.count();
-    if (lt > app.lastLesFed)
-    {
-        auto snap = llog.snapshot();
-        uint64_t newN = lt - app.lastLesFed;
-        if (newN > snap.size()) newN = snap.size();
-        for (size_t i = snap.size() - (size_t)newN; i < snap.size(); ++i)
-            app.feed.feedLes(snap[i]);
-        app.lastLesFed = lt;
     }
 }
 
@@ -124,40 +77,6 @@ void startActive(App& app)
         app.wav.setCenterFreq(app.centerFreqMHz * 1e6);
         ok = app.wav.start(0, cb, err);
     }
-    else if (app.sourceMode == 2)
-    {
-        app.active = &app.server;
-        app.server.setHost(app.serverHost);
-        app.server.setPort((uint16_t)app.serverPort);
-        app.server.setCompressionEnabled(app.serverCompression);
-        app.server.setSampleTypeIndex(app.serverSampleType);
-        app.server.setCenterFreq(app.centerFreqMHz * 1e6);
-        ok = app.server.start(0, cb, err);
-        if (ok)
-        {
-            // The server reports its sample rate asynchronously after START;
-            // wait briefly so the decoders are configured at the right rate.
-            for (int i = 0; i < 40; ++i)
-            {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                if (app.server.sampleRate() > 1.0)
-                    break;
-            }
-        }
-    }
-    else if (app.sourceMode == 3)
-    {
-        app.active = &app.hack;
-        app.hack.setSampleRate(app.hackSampleRateMHz * 1e6);
-        app.hack.setCenterFreq(app.centerFreqMHz * 1e6);
-        app.hack.setLnaGain(app.hackLna);
-        app.hack.setVgaGain(app.hackVga);
-        app.hack.setAmpEnable(app.hackAmp);
-        app.hack.setBiasTee(app.hackBias);
-        app.hack.setPpm((double)app.ppm);
-        app.hack.setDcBlock(app.dcBlock);
-        ok = app.hack.start(app.deviceIndex, cb, err);
-    }
 #ifdef HAS_AIRSPY
     else if (app.sourceMode == 5)
     {
@@ -178,19 +97,6 @@ void startActive(App& app)
         ok = app.airspy.start(app.deviceIndex, cb, err);
     }
 #endif
-    else if (app.sourceMode == 6)
-    {
-        // RTL-TCP network source
-        app.active = &app.rtltcp;
-        app.rtltcp.setHost(app.rtlTcpHost);
-        app.rtltcp.setPort((uint16_t)app.rtlTcpPort);
-        app.rtltcp.setSampleRate(kRates[app.sampleRateIdx]);
-        app.rtltcp.setCenterFreq(app.centerFreqMHz * 1e6);
-        app.rtltcp.setGain(app.autoGain ? -1.0 : (double)app.gainDb);
-        app.rtltcp.setBiasTee(app.biasTee);
-        app.rtltcp.setPpm((double)app.ppm);
-        ok = app.rtltcp.start(0, cb, err);
-    }
 
     if (ok)
     {
@@ -224,7 +130,6 @@ void startActive(App& app)
                 app.decodersB.removeAll();
                 app.decodersB.configure(app.sdrB.sampleRate(), app.sdrB.centerFreq());
                 app.decodersB.setMaxWorkers(2);
-                app.decodersB.setRecording(app.recordVoice, app.recordDir);
                 app.decodersB.start();
             }
             else
@@ -234,19 +139,14 @@ void startActive(App& app)
 
         app.decoders.removeAll();
         app.decoders.configure(app.active->sampleRate(), app.active->centerFreq());
-        app.decoders.setAudioEnabled(true); // A keeps audio in dual mode (both SDRs have voice capability)
+        app.decoders.setAudioEnabled(true);
         if (app.dualMode)
             app.decoders.setMaxWorkers(4); // cap primary workers in dual mode (B gets 2)
         app.decoders.start();
         app.lastConfiguredFs = app.active->sampleRate();
         app.iqRecorder.configurePrebuffer(app.active->sampleRate(), app.iqBufferSec);
-        // Don't auto-follow assignments left over from a previous session.
-        app.followSeenCount = app.decoders.cassignLog().count();
-        app.following = false;
-        app.followChannelId = -1;
-        app.followHome.clear();
 
-        // Restore saved decoders (non-8400 only, from airscope.ini)
+        // Restore saved decoders (from airscope.ini)
         if (app.saveDecoders && !app.savedDecoders.empty())
         {
             for (auto& sd : app.savedDecoders)
@@ -279,4 +179,3 @@ void startActive(App& app)
     else
         app.status = "Error: " + err;
 }
-

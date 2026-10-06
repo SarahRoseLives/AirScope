@@ -66,45 +66,6 @@ static std::string messageJson(const DecodedMessage& m)
     return o.str();
 }
 
-static std::string suJson(const DecodedMessage& m)
-{
-    std::ostringstream o;
-    o << "{\"t\":" << (int64_t)m.timeSec << ",\"f\":" << m.freqMHz << ",\"st\":" << (int)m.suType << ",\"a\":" << m.aesId;
-    if (!m.text.empty()) { o << ",\"tx\":"; jsonStr(o, m.text); }
-    if (!m.hex.empty())  { o << ",\"hx\":"; jsonStr(o, m.hex); }
-    o << '}';
-    return o.str();
-}
-
-static std::string egcJson(const EgcMessage& m)
-{
-    std::ostringstream o;
-    o << '{';
-    bool first = true;
-    if (!m.timeUtc.empty())  { if (!first) o << ','; o << "\"ut\":"; jsonStr(o, m.timeUtc); first = false; }
-    if (!m.service.empty()) { if (!first) o << ','; o << "\"sv\":"; jsonStr(o, m.service); first = false; }
-    if (!m.priority.empty()){ if (!first) o << ','; o << "\"pr\":"; jsonStr(o, m.priority); first = false; }
-    if (!first) o << ','; o << "\"f\":" << m.freqMHz; first = false;
-    if (!m.text.empty())    { if (!first) o << ','; o << "\"tx\":"; jsonStr(o, m.text); }
-    o << '}';
-    return o.str();
-}
-
-static std::string lesJson(const LesMessage& m)
-{
-    std::ostringstream o;
-    o << '{';
-    bool first = true;
-    if (!m.timeUtc.empty())  { o << "\"ut\":"; jsonStr(o, m.timeUtc); first = false; }
-    if (!m.satName.empty())  { if (!first) o << ','; o << "\"sn\":"; jsonStr(o, m.satName); first = false; }
-    if (!m.lesLabel.empty()) { if (!first) o << ','; o << "\"ll\":"; jsonStr(o, m.lesLabel); first = false; }
-    if (!first) o << ','; o << "\"f\":" << m.freqMHz; first = false;
-    o << ",\"ch\":" << m.channel << ",\"pk\":" << m.pktNo << ",\"en\":" << (m.isEncrypted ? 1 : 0);
-    if (!m.text.empty()) { o << ",\"tx\":"; jsonStr(o, m.text); }
-    o << '}';
-    return o.str();
-}
-
 static std::string voiceCallJson(const VoiceCallRecord& c)
 {
     std::ostringstream o;
@@ -143,19 +104,7 @@ static std::string decoderJson(const DecoderManager::Status& s)
     std::ostringstream o;
     o << "{\"id\":" << s.channelId << ",\"f\":" << s.freqMHz << ",\"bd\":" << s.baud;
     o << ",\"lk\":" << (s.locked ? 1 : 0) << ",\"eb\":" << s.ebno << ",\"ms\":" << (int64_t)s.msgs;
-    o << ",\"vo\":" << (s.isVoice ? 1 : 0) << ",\"mo\":" << (s.monitored ? 1 : 0);
-    if (s.egcCType) o << ",\"ct\":" << s.egcCType;
     o << '}';
-    return o.str();
-}
-
-static std::string lesFreqJson(const LesFreqEntry& e)
-{
-    std::ostringstream o;
-    o << "{\"f\":" << e.freqMHz << ",\"li\":" << e.lesId << ",\"sv\":" << e.services;
-    if (!e.satName.empty())  { o << ",\"sn\":"; jsonStr(o, e.satName); }
-    if (!e.lesLabel.empty()) { o << ",\"ll\":"; jsonStr(o, e.lesLabel); }
-    o << ",\"ls\":" << (int64_t)e.lastSeen << ",\"hd\":" << (e.hasDecoder ? 1 : 0) << '}';
     return o.str();
 }
 
@@ -226,7 +175,7 @@ a{color:#80a0ff}
 </div>
 <div id="content"></div>
 <script>
-var tab=0,tabs=['Messages','SUs','EGC','LES','Voice','Aircraft','Decoders','LES Freq'];
+var tab=0,tabs=['Messages','Voice','Aircraft','Decoders'];
 var data={},timer=null,openCards=new Set();
 function init(){
   var d=document.getElementById('tabs');
@@ -247,7 +196,7 @@ function renderTabs(){
   for(var i=0;i<d.length;i++) d[i].className='tab'+(i===tab?' active':'');
 }
 function fetchData(){
-  var eps=['messages','sus','egc','les','voicecalls','aircraft','decoders','lesfreq'];
+  var eps=['messages','voicecalls','aircraft','decoders'];
   fetch('/api/'+eps[tab]+'?limit=200').then(function(r){return r.json()}).then(function(j){
     data[eps[tab]]=j;renderTab();
   }).catch(function(){});
@@ -314,13 +263,9 @@ function toggleCard(id){
 function getCols(){
   switch(tab){
     case 0:return['Time','Reg','Label','Text','Freq','ICAO'];
-    case 1:return['Time','Freq','Text','SU','AES'];
-    case 2:return['UTC','Service','Priority','Text','Freq'];
-    case 3:return['UTC','Sat','LES','Text','Freq','Ch'];
-    case 4:return['Time','Freq','ICAO','Duration','File'];
-    case 5:return['AES','ICAO','Reg','Flight','Msgs','Pos'];
-    case 6:return['ID','Freq','Baud','Locked','Eb/N0','Msgs','Type'];
-    case 7:return['Freq','Sat','LES','Svc','Seen','Decoder'];
+    case 1:return['Time','Freq','ICAO','Duration','File'];
+    case 2:return['AES','ICAO','Reg','Flight','Msgs','Pos'];
+    case 3:return['ID','Freq','Baud','Locked','Eb/N0','Msgs'];
     default:return[];
   }
 }
@@ -332,11 +277,10 @@ function cellHtml(col,it){
   var v='';
   switch(col){
     case 'Time':v=fmtTime(it.t);break;
-    case 'UTC':v=it.ut||'';break;
     case 'Freq':v=(it.f||0).toFixed(4)+' MHz';break;
     case 'Reg':v=esc(it.rg);break;
     case 'Label':v=esc(it.lb);break;
-    case 'Text':v=esc(it.tx);if(it.st===48)v='<span class="org">'+v+'</span>';break;
+    case 'Text':v=esc(it.tx);break;
     case 'ICAO':v=esc(it.ic)||(it.a?'0x'+it.a.toString(16).toUpperCase():'--');
       if(it.ic){
         var pf='';
@@ -346,23 +290,13 @@ function cellHtml(col,it){
       }
       break;
     case 'AES':v=it.a?'0x'+it.a.toString(16).toUpperCase():'--';break;
-    case 'SU':v=it.st?'0x'+it.st.toString(16):'';break;
-    case 'Service':v=esc(it.sv);break;
-    case 'Priority':v=esc(it.pr);break;
-    case 'Sat':v=esc(it.sn);break;
-    case 'LES':v=esc(it.ll)||('LES '+it.li);break;
-    case 'Ch':v=it.ch||'';break;
     case 'Duration':v=it.rc?('<span style="color:#ff4040">Rec</span> '+it.d.toFixed(0)+'s'):fmtDur(it.d);break;
     case 'File':v=esc(it.fn);break;
     case 'ID':v=it.id;break;
-    case 'Baud':v=it.bd===1?'EGC':it.bd;break;
+    case 'Baud':v=it.bd;break;
     case 'Locked':v=it.lk?'<span style="color:#40f040">YES</span>':'<span style="color:#8080a0">no</span>';break;
     case 'Eb/N0':v=(it.eb||0).toFixed(1);break;
     case 'Msgs':v=it.ms||0;break;
-    case 'Type':v=it.vo?'Voice':(it.ct===1?'EGC NCS':(it.ct===2?'EGC LES':'Data'));break;
-    case 'Svc':v='0x'+it.sv.toString(16).toUpperCase();break;
-    case 'Seen':v=Math.max(0,Date.now()/1000-it.ls).toFixed(0)+'s ago';break;
-    case 'Decoder':v=it.hd?'<span style="color:#40f040">ON</span>':'--';break;
     case 'Pos':v=(it.la!==undefined)?it.la.toFixed(3)+','+it.lo.toFixed(3)+' @'+it.al+'ft':'--';break;
     default:v=esc(it.tx)||esc(it.dc)||'';
   }
@@ -501,62 +435,6 @@ void WebServer::serve(int port)
                 std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.timeSec > b.timeSec;});
                 if ((int)items.size() > limit) items.resize(limit);
                 result = jsonArray(mapTo(items, messageJson));
-            }
-            else if (path.find("/api/sus") == 0)
-            {
-                auto items = decodersA ? decodersA->suLog().snapshot() : std::vector<DecodedMessage>{};
-                if (decodersB && dualMode && *dualMode) { auto b = decodersB->suLog().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
-                std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.timeSec > b.timeSec;});
-                if ((int)items.size() > limit) items.resize(limit);
-                result = jsonArray(mapTo(items, suJson));
-            }
-            else if (path.find("/api/egc") == 0)
-            {
-                auto items = decodersA ? decodersA->egcLog().snapshot() : std::vector<EgcMessage>{};
-                if (items.empty())
-                {
-                    // Return EGC-format test data so we can tell if the route works
-                    result = "[{\"ut\":\"--:--:--\",\"sv\":\"(no EGC data yet)\",\"f\":0}]";
-                }
-                else
-                {
-                    if (decodersB && dualMode && *dualMode) { auto b = decodersB->egcLog().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
-                    std::reverse(items.begin(), items.end());
-                    if ((int)items.size() > limit) items.resize(limit);
-                    std::reverse(items.begin(), items.end());
-                    result = jsonArray(mapTo(items, egcJson));
-                }
-            }
-            else if (path.find("/api/lesfreq") == 0)
-            {
-                auto items = decodersA ? decodersA->lesFreqTable().snapshot() : std::vector<LesFreqEntry>{};
-                if (decodersB && dualMode && *dualMode)
-                {
-                    auto b = decodersB->lesFreqTable().snapshot();
-                    for (auto& e : b) {
-                        bool dup = false;
-                        for (auto& ea : items) if (std::fabs(ea.freqMHz - e.freqMHz) < 0.001) { dup = true; break; }
-                        if (!dup) items.push_back(e);
-                    }
-                }
-                std::sort(items.begin(), items.end(), [](auto& a, auto& b){return a.freqMHz < b.freqMHz;});
-                result = jsonArray(mapTo(items, lesFreqJson));
-            }
-            else if (path.find("/api/les") == 0)
-            {
-                auto items = decodersA ? decodersA->lesLog().snapshot() : std::vector<LesMessage>{};
-                if (items.empty())
-                {
-                    result = "[]";
-                }
-                else
-                {
-                    if (decodersB && dualMode && *dualMode) { auto b = decodersB->lesLog().snapshot(); items.insert(items.end(), b.begin(), b.end()); }
-                    std::reverse(items.begin(), items.end());
-                    if ((int)items.size() > limit) items.resize(limit);
-                    std::reverse(items.begin(), items.end());
-                    result = jsonArray(mapTo(items, lesJson));
-                }
             }
             else if (path.find("/api/voicecalls") == 0)
             {

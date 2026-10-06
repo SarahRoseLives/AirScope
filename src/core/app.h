@@ -2,16 +2,13 @@
 #pragma once
 
 #include "dsp/iq_ring.h"
-#include "jfft.h"
+#include "dsp/jfft.h"
 #include "gui/waterfall.h"
 #include "sdr/rtl_sdr_source.h"
-#include "sdr/hackrf_source.h"
 #ifdef HAS_AIRSPY
 #include "sdr/airspy_source.h"
 #endif
 #include "sdr/wav_file_source.h"
-#include "sdr/sdrpp_server_source.h"
-#include "sdr/rtl_tcp_source.h"
 #include "sdr/iq_recorder.h"
 #include "audio/audio_player.h"
 #include "web/web_server.h"
@@ -47,44 +44,17 @@ struct SpectrumView
     bool   fftSkip = false; // set by draw functions when panel is visible, read by processFft next frame
 };
 
-struct CallHunterCand
-{
-    double freqMHz = 0.0;
-    double peakDB = -999.0;
-    int    confirmCount = 0;
-    int    lostCount = 0;
-    int    channelId = -1;
-    bool   matched = false;
-};
-
 struct App
 {
     RtlSdrSource    sdr;
     WavFileSource   wav;
-    SdrppServerSource server;
-    HackRfSource    hack;
-    RtlTcpSource    rtltcp;
 #ifdef HAS_AIRSPY
     AirspySource    airspy;
 #endif
     SdrSource*      active = &sdr;
-    int  sourceMode = 0; // 0=RTL, 1=WAV, 2=SDR++ Server, 3=HackRF, 4=Dual RTL, 5=Airspy, 6=RTL-TCP
+    int  sourceMode = 0; // 0=RTL, 1=WAV, 4=Dual RTL, 5=Airspy
     char wavPath[512] = "";
     bool wavLoop = true;
-    char serverHost[128] = "localhost";
-    int  serverPort = 5259;
-    bool serverCompression = true;
-    int  serverSampleType = 1;
-    double serverSampleRateMHz = 2.0;
-    char rtlTcpHost[128] = "127.0.0.1";
-    int  rtlTcpPort = 1234;
-
-    // HackRF
-    double hackSampleRateMHz = 10.0;
-    int    hackLna = 16;
-    int    hackVga = 16;
-    bool   hackAmp = false;
-    bool   hackBias = false;
 
     // Airspy
 #ifdef HAS_AIRSPY
@@ -129,12 +99,12 @@ struct App
     bool recordVoice = false;
     int  recordFormat = 0; // 0=WAV, 1=OGG
     char recordDir[256] = "recordings";
-    bool saveDecoders = false; // save non-8400 decoders in INI for restart
+    bool saveDecoders = false; // save decoders in INI for restart
     std::vector<std::pair<double,int>> savedDecoders;  // freqMHz, baud  (spectrum A)
     std::vector<std::pair<double,int>> savedDecodersB; // freqMHz, baud  (spectrum B)
 
-    // Country blacklist — voice calls from these 2-letter country codes
-    // will not be monitored (they still record if recording is on).
+    // Country blacklist — aircraft from these 2-letter country codes will not
+    // be monitored.
     std::vector<std::string> blacklistCountries;
 
     // IQ recorder
@@ -146,8 +116,6 @@ struct App
     bool voiceMuted = false;
     bool cpuReduce = false;
     bool showAbout = false;
-    bool autoAddLes = true;       // auto-create decoders for discovered LES frequencies
-    int  maxLesAutoDecoders = 4;  // cap on auto-created LES decoders
     bool webServerEnabled = false;
     int  webServerPort = 8080;
     WebServer webServer;
@@ -158,7 +126,7 @@ struct App
     MessageFeed feed;
     VersionCheck verCheck;
     FlightMapWebView flightMapWv;
-    uint64_t lastAcarsFed = 0, lastEgcFed = 0, lastLesFed = 0;
+    uint64_t lastAcarsFed = 0;
     bool   outFile = false;
     char   outFilePath[512] = "messages.jsonl";
     bool   outUdp = false;
@@ -169,19 +137,6 @@ struct App
     bool   outSbs = false;
     char   outSbsHost[128] = "127.0.0.1";
     int    outSbsPort = 30003;
-
-    // Voice follow
-    bool   voiceFollow = false;
-    float  followHoldSec = 6.0f;
-    bool   following = false;
-    bool   followRetuned = false;
-    bool   followEverLocked = false;
-    int    followChannelId = -1;
-    double followHomeMHz = 0.0;
-    uint64_t followSeenCount = 0;
-    uint64_t followVoiceFrames = 0;
-    std::vector<std::pair<double, int>> followHome;
-    std::chrono::steady_clock::time_point followActivity;
 
     std::vector<SdrDeviceInfo> devices;
     int deviceIndex = 0;
@@ -220,16 +175,6 @@ struct App
     BandPlan bandPlanLoadedB;
     char   bandPlanDir[256] = "bandplans";
 
-    // CallHunter
-    bool  callHunterMode = false;
-    float callHunterThreshDB = 2.0f;
-    int   callHunterConfirm = 10;
-    int   callHunterLost = 30;
-    std::vector<CallHunterCand> callHunterCands;
-    std::vector<float> callHunterBaseline;
-    int    callHunterWarmup = 0;
-    double callHunterLastCenter = 0.0;
-
     // Persistent message store (SQLite) — per-session, opt-in.
     MessageStore writeDb;
     bool   logToDb = false;
@@ -240,11 +185,8 @@ struct App
     std::vector<std::string> archiveDbLabels;
     double                  archiveDbLastScan = 0.0;
     int    archiveComboMsg = 0;  // Messages panel session combo
-    int    archiveComboSu  = 0;  // SUs panel session combo
-    int    archiveComboEgc = 0;  // EGC panel session combo
-    int    archiveComboLes = 0;  // LES panel session combo
 
-    // Shared search buffer for the Messages / SUs / EGC / LES panels.
+    // Shared search buffer for the Messages panel.
     char searchBuf[128] = {};
 
     int  layoutVersion = 0;
@@ -281,4 +223,4 @@ constexpr const char* kFftLabels[] = {"1024", "2048", "4096", "8192", "16384", "
 constexpr int kNumFftSizes = (int)(sizeof(kFftSizes) / sizeof(kFftSizes[0]));
 
 // Dock layout version: bump when the built-in default layout changes.
-constexpr int kLayoutVersion = 12;
+constexpr int kLayoutVersion = 13;

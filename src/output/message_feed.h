@@ -1,6 +1,6 @@
-// Decoded-message output feed. Emits ACARS and EGC messages as newline-
-// delimited JSON (JAERO JSONdump / inmarsat-sniffer compatible) and/or the
-// JAERO text format, to a file and/or UDP endpoint. Thread-safe.
+// Decoded-message output feed. Emits ACARS messages as newline-delimited JSON
+// (JAERO JSONdump / inmarsat-sniffer compatible) and/or the JAERO text format,
+// to a file and/or UDP endpoint. Thread-safe.
 #pragma once
 
 #include "decode/message_log.h"
@@ -22,8 +22,7 @@ public:
     void setFileEnabled(bool on, const std::string& path);
     void setUdpEnabled(bool on, const std::string& host, int port);
     // SBS / BaseStation (port 30003) position feed. We act as a TCP *server*
-    // (listener); Virtual Radar Server / tar1090 connect to us as clients. Each
-    // ACARS message carrying an ADS-C position is broadcast as a MSG,3 line.
+    // (listener); Virtual Radar Server / tar1090 connect to us as clients.
     void setSbsEnabled(bool on, int port);
     void setFormat(int fmt) { format_ = fmt; }
     void setStationId(const std::string& s) { station_ = s; }
@@ -37,8 +36,6 @@ public:
     void pollSbs();
 
     void feedAcars(const DecodedMessage& m);
-    void feedEgc(const EgcMessage& m);
-    void feedLes(const LesMessage& m);
 
 private:
     void emit(const std::string& line);

@@ -1,34 +1,13 @@
 #include "imgui.h"
 #include "imgui_internal.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
-#include "implot.h"
-#include <GLFW/glfw3.h>
 #include "core/app.h"
 #include "core/main_funcs.h"
-#include "decode/icao_country.h"
-#include "util/log.h"
 #include "version.h"
-#include "gui/waterfall.h"
 #include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <thread>
-#include <utility>
-#include <vector>
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <shellapi.h>
-#endif
 
 void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
 {
@@ -39,7 +18,6 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
 #define WS(f) buf->appendf(#f "=%s\n", app.f)
     WI(sourceMode); WI(deviceIndex); WI(sampleRateIdx); WI(newBaud); WI(fftSizeIdx);
     WI(audioDevice); WI(voiceMuted); WI(cpuReduce);
-    WI(autoAddLes); WI(maxLesAutoDecoders);
     WI(logToDb); WI(maxDbAgeDays);
     WI(webServerEnabled); WI(webServerPort);
     WD(centerFreqMHz);
@@ -48,10 +26,6 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
     WI(autoScale); WI(bandBrowse); WF(avgAlpha); WF(dbMin); WF(dbMax);
     WF(browseEdgePct); WF(browseThrottleMs); WF(browseMinMovePct);
     WS(wavPath); WI(wavLoop);
-    WS(serverHost); WI(serverPort); WI(serverCompression); WI(serverSampleType);
-    WD(serverSampleRateMHz);
-    WS(rtlTcpHost); WI(rtlTcpPort);
-    WD(hackSampleRateMHz); WI(hackLna); WI(hackVga); WI(hackAmp); WI(hackBias);
 #ifdef HAS_AIRSPY
     WI(airspySampleRateIdx); WI(airspyGainMode); WI(airspySenseGain); WI(airspyLinearGain);
     WI(airspyLnaGain); WI(airspyMixerGain); WI(airspyVgaGain);
@@ -59,7 +33,6 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
 #endif
     WI(deviceIndexB); WD(centerFreqMHzB); WI(sampleRateIdxB);
     WI(autoGainB); WF(gainDbB); WI(biasTeeB); WF(ppmB);
-    WI(voiceFollow); WF(followHoldSec);
     WS(recordDir);
     WI(recordFormat);
     WI(saveDecoders);
@@ -107,7 +80,6 @@ void cfgReadLine(App& app, const char* line)
 #define RS(f) if (!std::strcmp(key, #f)) { std::strncpy(app.f, val, sizeof(app.f) - 1); app.f[sizeof(app.f) - 1] = 0; return; }
     RI(sourceMode); RI(deviceIndex); RI(sampleRateIdx); RI(newBaud); RI(fftSizeIdx);
     RI(audioDevice); RB(voiceMuted); RB(cpuReduce);
-    RB(autoAddLes); RI(maxLesAutoDecoders);
     RB(logToDb); RI(maxDbAgeDays);
     RB(webServerEnabled); RI(webServerPort);
     RD(centerFreqMHz);
@@ -116,10 +88,6 @@ void cfgReadLine(App& app, const char* line)
     RB(autoScale); RB(bandBrowse); RF(avgAlpha); RF(dbMin); RF(dbMax);
     RF(browseEdgePct); RF(browseThrottleMs); RF(browseMinMovePct);
     RS(wavPath); RB(wavLoop);
-    RS(serverHost); RI(serverPort); RB(serverCompression); RI(serverSampleType);
-    RD(serverSampleRateMHz);
-    RS(rtlTcpHost); RI(rtlTcpPort);
-    RD(hackSampleRateMHz); RI(hackLna); RI(hackVga); RB(hackAmp); RB(hackBias);
 #ifdef HAS_AIRSPY
     RI(airspySampleRateIdx); RI(airspyGainMode); RI(airspySenseGain); RI(airspyLinearGain);
     RI(airspyLnaGain); RI(airspyMixerGain); RI(airspyVgaGain);
@@ -127,10 +95,9 @@ void cfgReadLine(App& app, const char* line)
 #endif
     RI(deviceIndexB); RD(centerFreqMHzB); RI(sampleRateIdxB);
     RB(autoGainB); RF(gainDbB); RB(biasTeeB); RF(ppmB);
-    RB(voiceFollow); RF(followHoldSec);
     RS(recordDir);
     RI(recordFormat); RB(saveDecoders);
-    // savedDecoder lines: freqMHz,baud (e.g. "1545.020,600")
+    // savedDecoder lines: freqMHz,baud (e.g. "131.550,1200")
     if (!std::strcmp(key, "savedDecoder"))
     {
         double f = 0.0; int b = 0;
@@ -189,6 +156,3 @@ void cfgRegisterHandler(App& app)
     };
     ImGui::AddSettingsHandler(&h);
 }
-
-// Bump this whenever the built-in default dock layout changes so saved older
-// layouts are replaced by the new default on next launch.

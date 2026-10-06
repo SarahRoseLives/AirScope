@@ -36,16 +36,12 @@ public:
 
     // Load messages from a SQLite file into the given vectors.
     // Returns true on success.
-    // Type 1=ACARS, 2=SU — loaded as DecodedMessage
+    // Type 1=ACARS — loaded as DecodedMessage
     bool loadAcarsOrSu(const std::string& dbPath, int type,
                        class MessageLog* log, int baud);
-    // Type 3=EGC
-    bool loadEgc(const std::string& dbPath, class EgcLog* log);
-    // Type 4=LES
-    bool loadLes(const std::string& dbPath, class LesLog* log);
 
     // Message type enum — discriminates the single messages table.
-    enum Type : int { ACARS = 1, SU = 2, EGC = 3, LES = 4, Voice = 5, MES = 6 };
+    enum Type : int { ACARS = 1, Voice = 5 };
 
     // Store methods — no-ops when !enabled_ or !db_.
     void storeAcars(double timeSec, int channelId, double freqMHz, const std::string& text,
@@ -54,22 +50,8 @@ public:
                     bool hasPos, double lat, double lon, int alt, const std::string& decoded,
                     bool downlink, int baud);
 
-    void storeSu(double timeSec, int channelId, double freqMHz, const std::string& text,
-                 const std::string& hex, uint32_t aesId, uint8_t suType, int baud);
-
-    void storeEgc(double timeSec, int channelId, double freqMHz, const std::string& text,
-                  const std::string& timeUtc, const std::string& priority, int msgId,
-                  const std::string& service, int presentation);
-
-    void storeLes(double timeSec, int channelId, double freqMHz, const std::string& text,
-                  const std::string& timeUtc, const std::string& satName, int lesId,
-                  const std::string& lesLabel, int ch, int pktNo, bool encrypted);
-
     void storeVoice(double timeSec, double freqMHz, uint32_t aesId, const std::string& icao,
                     double durationSec, const std::string& filename);
-
-    void storeMes(uint32_t mesId, const std::string& action, const std::string& sat,
-                  int les, int channel, double freqMHz, double nowSec);
 
 private:
     void exec(const char* sql);

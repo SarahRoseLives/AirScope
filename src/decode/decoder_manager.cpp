@@ -1,6 +1,5 @@
 #include "decode/decoder_manager.h"
 
-#include "decode/icao_country.h"
 #include "voice/wav_writer.h"
 #include <algorithm>
 #include <chrono>
@@ -13,15 +12,6 @@
 // coverage per sub-band; decoders within ±135 kHz of a sub-band centre share it.
 static constexpr double kSubRateTarget = 250000.0;
 static constexpr double kSubBW = 200000.0;
-
-// Heavier decoders consume more CPU per block.  EGC is very light, OQPSK
-// moderate, MSK the heaviest (coarse frequency estimator + matched filters).
-static int decoderWeight(int baud)
-{
-    if (baud == kEgcBaud) return 1;
-    if (baud == 8400 || baud == 10500) return 2;
-    return 3; // 600 / 1200 MSK
-}
 
 void DecoderManager::configure(double Fs, double centerHz)
 {
@@ -63,7 +53,6 @@ void DecoderManager::stop()
     workers_.clear();
     if (audioEnabled_)
         audio_.stop();
-    voiceMonitorId_ = -1;
 }
 
 void DecoderManager::feed(const float* iq, int nComplex)
@@ -91,6 +80,7 @@ void DecoderManager::feed(const float* iq, int nComplex)
 
 int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
 {
+    (void)aesId;
     if (Fs_ <= 0.0 || workers_.empty())
         return -1;
 
@@ -116,8 +106,6 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
                 int cnt = (int)sb->decoders.size();
                 if (cnt >= 4)
                 {
-                    // Overloaded sub-band — prefer a shadow on a lighter worker.
-                    // The effective load is the worker's total (decoder weight + sub-band weight).
                     int eff = w->weight.load() + (int)w->subbands.size() * 10 + cnt * 8;
                     if (eff < bestLoad)
                     {
@@ -128,7 +116,6 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
                 }
                 else
                 {
-                    // Not overloaded — prefer the lowest raw decoder count.
                     if (cnt < bestLoad)
                     {
                         bestW = w.get();
@@ -147,27 +134,16 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
         for (auto& sb : bestW->subbands)
         {
             if (sb != bestSb) continue;
-            Decoder* dec = sb->decoders.emplace_back(std::make_shared<Decoder>(
-                sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &suLog_, &audio_, &cassign_, &netTable_, &egcLog_, &acTable_, &mesLog_, &lesLog_, &lesFreqTable_, &voiceCallLog_)).get();
+            sb->decoders.emplace_back(std::make_shared<Decoder>(
+                sb->subRate, sb->centerHz, freqHz, baud, id));
             bestW->count.fetch_add(1);
-            bestW->weight.fetch_add(decoderWeight(baud));
-            if (baud == 8400 && voiceMonitorId_ < 0)
-            {
-                dec->setMonitored(true);
-                voiceMonitorId_ = id;
-            }
-            if (baud == 8400)
-            {
-                dec->setRecording(recordOn_, recordDir_, recordFmt_);
-                dec->setVoiceAesId(aesId);
-            }
+            bestW->weight.fetch_add(1);
             return id;
         }
         // Sub-band was removed between locks — fall through to creation.
     }
 
     // 2) No covering or non-overloaded sub-band -> create a new one.
-    // Effective weight includes sub-band count (front-end DDC ~= 5 MSK decoders).
     Worker* best = workers_[0].get();
     int bestEff = best->weight.load() + (int)best->subbands.size() * 5;
     for (auto& w : workers_)
@@ -178,21 +154,11 @@ int DecoderManager::addDecoder(double freqHz, int baud, uint32_t aesId)
 
     std::lock_guard<std::mutex> lk(best->dMtx);
     auto sb = std::make_shared<SubBand>(Fs_, centerHz_, freqHz, kSubRateTarget, kSubBW);
-    Decoder* dec = sb->decoders.emplace_back(std::make_shared<Decoder>(
-        sb->subRate, sb->centerHz, freqHz, baud, id, &log_, &suLog_, &audio_, &cassign_, &netTable_, &egcLog_, &acTable_, &mesLog_, &lesLog_, &lesFreqTable_, &voiceCallLog_)).get();
-    if (baud == 8400 && voiceMonitorId_ < 0)
-    {
-        dec->setMonitored(true);
-        voiceMonitorId_ = id;
-    }
-    if (baud == 8400)
-    {
-        dec->setRecording(recordOn_, recordDir_, recordFmt_);
-        dec->setVoiceAesId(aesId);
-    }
+    sb->decoders.emplace_back(std::make_shared<Decoder>(
+        sb->subRate, sb->centerHz, freqHz, baud, id));
     best->subbands.push_back(std::move(sb));
     best->count.fetch_add(1);
-    best->weight.fetch_add(decoderWeight(baud));
+    best->weight.fetch_add(1);
     return id;
 }
 
@@ -207,167 +173,15 @@ void DecoderManager::removeDecoder(int channelId)
             for (auto it = decs.begin(); it != decs.end(); ++it)
                 if ((*it)->channelId() == channelId)
                 {
-                    // Log end of voice call before destroying the decoder.
-                    if ((*it)->isVoice() && (*it)->recordingNow())
-                    {
-                        double dur = (double)(*it)->voiceFrames() * 0.02; // 20 ms per AMBE frame
-                        voiceCallLog_.updateEnd(channelId, dur, (*it)->recordingPath());
-                    }
-                    int baudOfRemoved = (*it)->baud();
                     decs.erase(it);
                     w->count.fetch_sub(1);
-                    w->weight.fetch_sub(decoderWeight(baudOfRemoved));
+                    w->weight.fetch_sub(1);
                     if (decs.empty())
                         w->subbands.erase(sbIt); // drop now-empty sub-band
-                    if (channelId == voiceMonitorId_)
-                        voiceMonitorId_ = -1;
                     return;
                 }
         }
     }
-}
-
-void DecoderManager::setVoiceMonitor(int channelId)
-{
-    voiceMonitorId_ = channelId;
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                d->setMonitored(d->isVoice() && d->channelId() == channelId);
-    }
-    audio_.clear();
-}
-
-void DecoderManager::autoMonitor(const std::vector<std::string>& blacklistCountries)
-{
-    // If the current monitor is still a live voice decoder, keep it.
-    if (voiceMonitorId_ >= 0) {
-        for (auto& w : workers_) {
-            std::lock_guard<std::mutex> lk(w->dMtx);
-            for (auto& sb : w->subbands)
-                for (auto& d : sb->decoders)
-                    if (d->isVoice() && d->channelId() == voiceMonitorId_)
-                        return; // still alive
-        }
-    }
-    // Pick any available voice decoder.
-    if (blacklistCountries.empty()) {
-        for (auto& w : workers_) {
-            std::lock_guard<std::mutex> lk(w->dMtx);
-            for (auto& sb : w->subbands)
-                for (auto& d : sb->decoders)
-                    if (d->isVoice()) {
-                        voiceMonitorId_ = d->channelId();
-                        d->setMonitored(true);
-                        return;
-                    }
-        }
-    } else {
-        for (auto& w : workers_) {
-            std::lock_guard<std::mutex> lk(w->dMtx);
-            for (auto& sb : w->subbands)
-                for (auto& d : sb->decoders) {
-                    if (!d->isVoice()) continue;
-                    uint32_t aes = d->voiceAesId();
-                    if (aes == 0) continue; // no AES yet, skip for now
-                    std::string icao = acTable_.icao(aes);
-                    if (icao.empty()) continue;
-                    uint32_t ihex = (uint32_t)std::strtoul(icao.c_str(), nullptr, 16);
-                    const char* cc = icaoCountry(ihex);
-                    if (cc && std::find(blacklistCountries.begin(), blacklistCountries.end(), std::string(cc)) != blacklistCountries.end())
-                        continue; // blacklisted
-                    voiceMonitorId_ = d->channelId();
-                    d->setMonitored(true);
-                    return;
-                }
-        }
-    }
-    voiceMonitorId_ = -1;
-
-    // Stop recording on any voice decoder whose country is blacklisted.
-    if (!blacklistCountries.empty()) {
-        for (auto& w : workers_) {
-            std::lock_guard<std::mutex> lk(w->dMtx);
-            for (auto& sb : w->subbands)
-                for (auto& d : sb->decoders) {
-                    if (!d->isVoice()) continue;
-                    uint32_t aes = d->voiceAesId();
-                    if (aes == 0) continue;
-                    std::string icao = acTable_.icao(aes);
-                    if (icao.empty()) continue;
-                    uint32_t ihex = (uint32_t)std::strtoul(icao.c_str(), nullptr, 16);
-                    const char* cc = icaoCountry(ihex);
-                    if (cc && std::find(blacklistCountries.begin(), blacklistCountries.end(), std::string(cc)) != blacklistCountries.end())
-                        d->setRecording(false, "", RecordFormat::WAV);
-                }
-        }
-    }
-}
-
-void DecoderManager::setCpuReduce(bool on)
-{
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                d->setCpuReduce(on);
-    }
-}
-
-void DecoderManager::setMessageStore(MessageStore* s)
-{
-    log_.setStore(s);
-    suLog_.setStore(s);
-    egcLog_.setStore(s);
-    lesLog_.setStore(s);
-    mesLog_.setStore(s);
-    voiceCallLog_.setStore(s);
-}
-
-void DecoderManager::setRecording(bool on, const std::string& dir)
-{
-    recordOn_ = on;
-    if (!dir.empty())
-        recordDir_ = dir;
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->isVoice())
-                    d->setRecording(on, recordDir_, recordFmt_);
-    }
-}
-
-void DecoderManager::setRecordFormat(RecordFormat fmt)
-{
-    recordFmt_ = fmt;
-    // Push to existing voice decoders so the next call file uses this format.
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->isVoice())
-                    d->setRecording(recordOn_, recordDir_, fmt);
-    }
-}
-
-int DecoderManager::recordingCount()
-{
-    int n = 0;
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->isVoice() && d->recordingNow())
-                    ++n;
-    }
-    return n;
 }
 
 void DecoderManager::setDecoderFreq(int channelId, double freqHz)
@@ -381,8 +195,14 @@ void DecoderManager::setDecoderFreq(int channelId, double freqHz)
                 {
                     d->setFreq(freqHz); // stays within the sub-band's IF window
                     return;
-        }
+                }
     }
+}
+
+void DecoderManager::setMessageStore(MessageStore* s)
+{
+    log_.setStore(s);
+    voiceCallLog_.setStore(s);
 }
 
 // Scan a directory for WAV/OGG voice recordings and populate VoiceCallLog.
@@ -397,7 +217,6 @@ void VoiceCallLog::scanDir(const std::string& dir)
         if (!entry.is_regular_file())
             continue;
         std::string name = entry.path().filename().string();
-        // Extract extension
         std::string ext;
         auto dot = name.rfind('.');
         if (dot != std::string::npos)
@@ -405,10 +224,8 @@ void VoiceCallLog::scanDir(const std::string& dir)
         if (ext != ".wav" && ext != ".ogg")
             continue;
 
-        // Parse filename.
         // New format (ICAO first):  "ABCDEF_20250627_143021_1546.0625MHz_ch7.wav"
         // New format (no ICAO):     "20250627_143021_1546.0625MHz_ch7.wav"
-        // Old format (ICAO at end): "20250627_143021_1546.0625MHz_ch7_ABCDEF.wav"
         VoiceCallRecord r;
         r.recording = false;
         r.filename = name;
@@ -420,13 +237,11 @@ void VoiceCallLog::scanDir(const std::string& dir)
         if (name.size() > 7 && isHex(name[0]) && isHex(name[1]) && isHex(name[2]) &&
             isHex(name[3]) && isHex(name[4]) && isHex(name[5]) && name[6] == '_')
         {
-            // New format with ICAO prefix
             icaoHex = name.substr(0, 6);
             haveIcao = true;
-            tsStart = 7; // skip "ABCDEF_"
+            tsStart = 7;
         }
 
-        // Timestamp: "YYYYMMDD_HHMMSS" starting at tsStart
         if (name.size() < tsStart + 16) continue;
         std::tm tm{};
         char ts[16];
@@ -446,7 +261,6 @@ void VoiceCallLog::scanDir(const std::string& dir)
         if (t != (time_t)-1)
             r.timeSec = (double)t;
 
-        // Frequency: after the first '_' after timestamp, before "MHz"
         auto u1 = name.find('_', tsStart + 15);
         if (u1 == std::string::npos) continue;
         auto mhz = name.find("MHz", u1);
@@ -454,12 +268,10 @@ void VoiceCallLog::scanDir(const std::string& dir)
         std::string freqStr = name.substr(u1 + 1, mhz - u1 - 1);
         r.freqMHz = std::atof(freqStr.c_str());
 
-        // Channel: "ch" followed by number
         auto ch = name.find("_ch", mhz);
         if (ch != std::string::npos)
             r.channelId = std::atoi(name.c_str() + ch + 3);
 
-        // ICAO: from prefix (new format) or from end (old format)
         if (haveIcao)
         {
             r.aesId = (uint32_t)std::strtoul(icaoHex.c_str(), nullptr, 16);
@@ -481,7 +293,6 @@ void VoiceCallLog::scanDir(const std::string& dir)
 
         {
             std::lock_guard<std::mutex> lk(mtx_);
-            // Avoid duplicates
             bool dup = false;
             for (auto& ex : items_)
                 if (ex.filename == name) { dup = true; break; }
@@ -494,33 +305,6 @@ void VoiceCallLog::scanDir(const std::string& dir)
     }
 }
 
-uint64_t DecoderManager::voiceFrames(int channelId)
-{
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->channelId() == channelId)
-                    return d->voiceFrames();
-    }
-    return 0;
-}
-
-uint32_t DecoderManager::voiceAes() const
-{
-    if (voiceMonitorId_ < 0) return 0;
-    for (auto& w : workers_)
-    {
-        std::lock_guard<std::mutex> lk(w->dMtx);
-        for (auto& sb : w->subbands)
-            for (auto& d : sb->decoders)
-                if (d->channelId() == voiceMonitorId_)
-                    return d->voiceAesId();
-    }
-    return 0;
-}
-
 void DecoderManager::removeAll()
 {
     for (auto& w : workers_)
@@ -531,7 +315,6 @@ void DecoderManager::removeAll()
         std::lock_guard<std::mutex> ql(w->qMtx);
         w->queue.clear();
     }
-    voiceMonitorId_ = -1;
 }
 
 int DecoderManager::decoderCount()
@@ -562,9 +345,7 @@ std::vector<DecoderManager::Status> DecoderManager::status()
         for (auto& sb : w->subbands)
             for (auto& d : sb->decoders)
                 out.push_back({d->channelId(), d->freqMHz(), d->baud(),
-                               d->locked(), d->ebno(), d->msgCount(),
-                               d->egcBer(), d->egcFrames(), d->egcChannelType(),
-                               d->monitored(), d->isVoice()});
+                               d->locked(), d->ebno(), d->msgCount(), false});
     }
     std::sort(out.begin(), out.end(),
               [](const Status& a, const Status& b) { return a.freqMHz < b.freqMHz; });

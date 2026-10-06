@@ -96,45 +96,6 @@ std::string compactAcarsJson(const DecodedMessage& m)
     return o.str();
 }
 
-std::string compactSuJson(const DecodedMessage& m)
-{
-    std::ostringstream o;
-    o << "{\"t\":" << (int64_t)m.timeSec << ",\"f\":" << m.freqMHz << ",\"st\":" << (int)m.suType << ",\"a\":" << m.aesId;
-    if (!m.text.empty()) { o << ",\"tx\":"; jsonStr(o, m.text); }
-    if (!m.hex.empty())  { o << ",\"hx\":"; jsonStr(o, m.hex); }
-    o << '}';
-    return o.str();
-}
-
-std::string compactEgcJson(const EgcMessage& m)
-{
-    std::ostringstream o;
-    o << '{';
-    bool first = true;
-    if (!m.timeUtc.empty())  { if (!first) o << ','; o << "\"ut\":"; jsonStr(o, m.timeUtc); first = false; }
-    if (!m.service.empty()) { if (!first) o << ','; o << "\"sv\":"; jsonStr(o, m.service); first = false; }
-    if (!m.priority.empty()){ if (!first) o << ','; o << "\"pr\":"; jsonStr(o, m.priority); first = false; }
-    if (!first) o << ','; o << "\"f\":" << m.freqMHz; first = false;
-    if (!m.text.empty())    { if (!first) o << ','; o << "\"tx\":"; jsonStr(o, m.text); }
-    o << '}';
-    return o.str();
-}
-
-std::string compactLesJson(const LesMessage& m)
-{
-    std::ostringstream o;
-    o << '{';
-    bool first = true;
-    if (!m.timeUtc.empty())  { if (!first) o << ','; o << "\"ut\":"; jsonStr(o, m.timeUtc); first = false; }
-    if (!m.satName.empty())  { if (!first) o << ','; o << "\"sn\":"; jsonStr(o, m.satName); first = false; }
-    if (!m.lesLabel.empty()) { if (!first) o << ','; o << "\"ll\":"; jsonStr(o, m.lesLabel); first = false; }
-    if (!first) o << ','; o << "\"f\":" << m.freqMHz; first = false;
-    o << ",\"ch\":" << m.channel << ",\"pk\":" << m.pktNo << ",\"en\":" << (m.isEncrypted ? 1 : 0);
-    if (!m.text.empty())    { o << ",\"tx\":"; jsonStr(o, m.text); }
-    o << '}';
-    return o.str();
-}
-
 } // namespace
 
 MessageFeed::~MessageFeed()
@@ -453,10 +414,7 @@ void MessageFeed::feedAcars(const DecodedMessage& m)
 
     if (format_ == COMPACT_JSON)
     {
-        if (m.suType != 0)
-            emit(compactSuJson(m));
-        else
-            emit(compactAcarsJson(m));
+        emit(compactAcarsJson(m));
         return;
     }
 
@@ -491,88 +449,5 @@ void MessageFeed::feedAcars(const DecodedMessage& m)
         s += std::string(",\"freq\":") + f;
     }
     s += "}";
-    emit(s);
-}
-
-void MessageFeed::feedEgc(const EgcMessage& m)
-{
-    if (!enabled()) return;
-    long sec, usec; nowUnix(sec, usec);
-
-    if (format_ == JAERO_TEXT)
-    {
-        std::string out = m.timeUtc + " UTC EGC " + m.service + " [" + m.priority +
-                          "] msgId=" + std::to_string(m.messageId);
-        if (!m.text.empty())
-        {
-            out += "\n\t";
-            for (char c : m.text) { if (c == '\r') continue; out += (c == '\n') ? "\n\t" : std::string(1, c); }
-        }
-        emit(out);
-        return;
-    }
-
-    if (format_ == COMPACT_JSON)
-    {
-        emit(compactEgcJson(m));
-        return;
-    }
-
-    // inmarsat-sniffer STD-C JSON schema.
-    std::string s = "{\"source\":\"AirScope\",\"type\":\"egc\"";
-    s += ",\"service\":\"" + jsonEscape(m.service) + "\"";
-    s += ",\"priority\":\"" + jsonEscape(m.priority) + "\"";
-    s += ",\"msg_id\":" + std::to_string(m.messageId);
-    s += ",\"presentation\":" + std::to_string(m.presentation);
-    if (m.frameNumber > 0) s += ",\"frame\":" + std::to_string(m.frameNumber);
-    if (!m.timeUtc.empty()) s += ",\"time_utc\":\"" + jsonEscape(m.timeUtc) + "\"";
-    if (m.freqMHz > 0.0)
-    {
-        char f[16]; std::snprintf(f, sizeof(f), "%.4f", m.freqMHz);
-        s += std::string(",\"downlink_mhz\":") + f;
-    }
-    s += ",\"text\":\"" + jsonEscape(m.text) + "\"";
-    s += ",\"timestamp\":" + std::to_string(sec) + "}";
-    emit(s);
-}
-
-void MessageFeed::feedLes(const LesMessage& m)
-{
-    if (!enabled()) return;
-    long sec, usec; nowUnix(sec, usec);
-
-    if (format_ == JAERO_TEXT)
-    {
-        std::string out = m.timeUtc + " UTC LES " + m.lesLabel + " ch=" + std::to_string(m.channel);
-        if (!m.text.empty())
-        {
-            out += "\n\t";
-            for (char c : m.text) { if (c == '\r') continue; out += (c == '\n') ? "\n\t" : std::string(1, c); }
-        }
-        emit(out);
-        return;
-    }
-
-    if (format_ == COMPACT_JSON)
-    {
-        emit(compactLesJson(m));
-        return;
-    }
-
-    std::string s = "{\"source\":\"AirScope\",\"type\":\"les\"";
-    s += ",\"les_id\":" + std::to_string(m.lesId);
-    s += ",\"les_label\":\"" + jsonEscape(m.lesLabel) + "\"";
-    s += ",\"sat\":\"" + jsonEscape(m.satName) + "\"";
-    s += ",\"channel\":" + std::to_string(m.channel);
-    s += ",\"pkt_no\":" + std::to_string(m.pktNo);
-    if (m.frameNumber > 0) s += ",\"frame\":" + std::to_string(m.frameNumber);
-    if (!m.timeUtc.empty()) s += ",\"time_utc\":\"" + jsonEscape(m.timeUtc) + "\"";
-    if (m.freqMHz > 0.0)
-    {
-        char f[16]; std::snprintf(f, sizeof(f), "%.4f", m.freqMHz);
-        s += std::string(",\"downlink_mhz\":") + f;
-    }
-    s += ",\"text\":\"" + jsonEscape(m.text) + "\"";
-    s += ",\"timestamp\":" + std::to_string(sec) + "}";
     emit(s);
 }

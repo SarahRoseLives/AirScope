@@ -68,11 +68,17 @@ void drawControls(App& app)
 
     ImGui::BeginDisabled(running);
 #ifdef HAS_AIRSPY
-    const char* modes[] = {"RTL-SDR", "WAV file", "SDR++ Server", "HackRF", "Dual RTL", "Airspy", "RTL-TCP"};
-    ImGui::Combo(_L("Source"), &app.sourceMode, modes, 7);
+    const char* modes[] = {"RTL-SDR", "WAV file", "Dual RTL", "Airspy"};
+    int modeSel = (app.sourceMode == 1) ? 1 : (app.sourceMode == 4) ? 2
+                : (app.sourceMode == 5) ? 3 : 0;
+    if (ImGui::Combo(_L("Source"), &modeSel, modes, 4))
+        app.sourceMode = (modeSel == 1) ? 1 : (modeSel == 2) ? 4
+                     : (modeSel == 3) ? 5 : 0;
 #else
-    const char* modes[] = {"RTL-SDR", "WAV file", "SDR++ Server", "HackRF", "Dual RTL", "RTL-TCP"};
-    ImGui::Combo(_L("Source"), &app.sourceMode, modes, 6);
+    const char* modes[] = {"RTL-SDR", "WAV file", "Dual RTL"};
+    int modeSel = (app.sourceMode == 1) ? 1 : (app.sourceMode == 4) ? 2 : 0;
+    if (ImGui::Combo(_L("Source"), &modeSel, modes, 3))
+        app.sourceMode = (modeSel == 1) ? 1 : (modeSel == 2) ? 4 : 0;
 #endif
     ImGui::EndDisabled();
 
@@ -100,9 +106,6 @@ void drawControls(App& app)
                 app.decodersB.removeAll();
             }
             app.dualMode = false;
-            app.following = false;
-            app.followChannelId = -1;
-            app.followHome.clear();
             app.status = "Idle";
         }
     }
@@ -242,128 +245,6 @@ void drawControls(App& app)
                         app.wav.channels(), app.wav.bits(), app.wav.sampleRate() / 1e3);
         }
     }
-    else if (app.sourceMode == 2)
-    {
-        // ---- SDR++ Server ----
-        ImGui::BeginDisabled(running);
-        ImGui::SetNextItemWidth(-60.0f);
-        ImGui::InputText("Host", app.serverHost, sizeof(app.serverHost));
-        ImGui::InputInt("Port", &app.serverPort);
-        const char* sampleTypes[] = {"int8 (low BW)", "int16", "float32 (high BW)"};
-        ImGui::Combo("Sample type", &app.serverSampleType, sampleTypes, 3);
-        ImGui::Checkbox("Compression (zstd)", &app.serverCompression);
-        ImGui::EndDisabled();
-
-        if (ImGui::InputDouble("Center (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.server.setCenterFreq(app.centerFreqMHz * 1e6);
-        }
-
-        // Sample-rate combo, populated from the server's source-module UI once
-        // connected. Selecting one drives the server's rate via a UI action.
-        if (running)
-        {
-            auto labels = app.server.sampleRateLabels();
-            auto values = app.server.sampleRateValues();
-            int curIdx = app.server.currentSampleRateIndex();
-            if (!labels.empty())
-            {
-                const char* preview = (curIdx >= 0 && curIdx < (int)labels.size())
-                                          ? labels[curIdx].c_str()
-                                          : "(select)";
-                if (ImGui::BeginCombo("Sample rate", preview))
-                {
-                    for (int i = 0; i < (int)labels.size(); ++i)
-                    {
-                        bool sel = (i == curIdx);
-                        if (ImGui::Selectable(labels[i].c_str(), sel) && i < (int)values.size())
-                        {
-                            app.server.setSampleRate(values[i]);
-                            app.viewA.resetView = true;
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-            }
-            else
-            {
-                ImGui::TextDisabled("Sample rate: (no rate control exposed by server)");
-            }
-            ImGui::Text("Server sample rate: %.4f MHz", app.server.sampleRate() / 1e6);
-        }
-        else
-        {
-            ImGui::TextDisabled("Connect to list the server's sample rates.");
-        }
-        ImGui::TextDisabled("Gain and device are configured on the SDR++ server.");
-    }
-    else if (app.sourceMode == 3)
-    {
-        // ---- HackRF (native) ----
-        if (ImGui::Button(_L("Refresh devices")))
-            app.devices = app.hack.listDevices();
-        ImGui::SameLine();
-        ImGui::Text("(%d found)", (int)app.devices.size());
-        if (!app.devices.empty())
-        {
-            std::string preview = app.devices[std::min(app.deviceIndex, (int)app.devices.size() - 1)].name;
-            if (ImGui::BeginCombo("Device", preview.c_str()))
-            {
-                for (int i = 0; i < (int)app.devices.size(); ++i)
-                {
-                    bool sel = (app.deviceIndex == i);
-                    std::string label = std::to_string(i) + ": " + app.devices[i].name +
-                                        " [" + app.devices[i].serial + "]";
-                    if (ImGui::Selectable(label.c_str(), sel))
-                        app.deviceIndex = i;
-                }
-                ImGui::EndCombo();
-            }
-        }
-
-        if (ImGui::InputDouble("Center (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-        {
-            app.viewA.resetView = true;
-            if (running)
-                app.hack.setCenterFreq(app.centerFreqMHz * 1e6);
-        }
-        if (ImGui::InputDouble("Sample rate (MHz)", &app.hackSampleRateMHz, 1.0, 2.0, "%.3f"))
-        {
-            if (app.hackSampleRateMHz < 2.0) app.hackSampleRateMHz = 2.0;
-            if (app.hackSampleRateMHz > 20.0) app.hackSampleRateMHz = 20.0;
-            app.viewA.resetView = true;
-            if (running)
-                app.hack.setSampleRate(app.hackSampleRateMHz * 1e6);
-        }
-        if (ImGui::SliderInt("LNA (IF) dB", &app.hackLna, 0, 40, "%d"))
-        {
-            app.hackLna = (app.hackLna / 8) * 8;
-            if (running) app.hack.setLnaGain(app.hackLna);
-        }
-        if (ImGui::SliderInt("VGA (BB) dB", &app.hackVga, 0, 62, "%d"))
-        {
-            app.hackVga = (app.hackVga / 2) * 2;
-            if (running) app.hack.setVgaGain(app.hackVga);
-        }
-        if (ImGui::Checkbox("RF amp (+~11 dB)", &app.hackAmp))
-        {
-            if (running) app.hack.setAmpEnable(app.hackAmp);
-        }
-        if (ImGui::Checkbox("Bias-T (antenna power)", &app.hackBias))
-        {
-            if (running) app.hack.setBiasTee(app.hackBias);
-        }
-        if (drawPpmAdjust("PPM", &app.ppm))
-        {
-            if (running) app.hack.setPpm((double)app.ppm);
-        }
-        if (ImGui::Checkbox(_L("DC block"), &app.dcBlock))
-        {
-            if (running) app.hack.setDcBlock(app.dcBlock);
-        }
-    }
 #ifdef HAS_AIRSPY
     else if (app.sourceMode == 5)
     {
@@ -466,45 +347,6 @@ void drawControls(App& app)
         }
     }
 #endif
-    if (app.sourceMode == 6)
-    {
-        // ---- RTL-TCP (network) ----
-        ImGui::SetNextItemWidth(-60.0f);
-        ImGui::InputText("Host", app.rtlTcpHost, sizeof(app.rtlTcpHost));
-        ImGui::InputInt("Port", &app.rtlTcpPort);
-        if (app.rtlTcpPort < 1) app.rtlTcpPort = 1234;
-        ImGui::Separator();
-        if (ImGui::InputDouble("Center (MHz)", &app.centerFreqMHz, 0.1, 1.0, "%.4f"))
-        {
-            app.viewA.resetView = true;
-            if (running) app.rtltcp.setCenterFreq(app.centerFreqMHz * 1e6);
-        }
-        if (ImGui::Combo(_L("Sample rate (MHz)"), &app.sampleRateIdx, kRateLabels, kNumRates))
-        {
-            app.viewA.resetView = true;
-            if (running) app.rtltcp.setSampleRate(kRates[app.sampleRateIdx]);
-        }
-        if (ImGui::Checkbox(_L("Auto gain (AGC)"), &app.autoGain))
-        {
-            if (running) app.rtltcp.setGain(app.autoGain ? -1.0 : (double)app.gainDb);
-        }
-        if (!app.autoGain)
-        {
-            if (ImGui::SliderFloat("Gain (dB)", &app.gainDb, 0.0f, 50.0f, "%.1f"))
-            {
-                if (running) app.rtltcp.setGain((double)app.gainDb);
-            }
-        }
-        if (ImGui::Checkbox(_L("Bias-T"), &app.biasTee))
-        {
-            if (running) app.rtltcp.setBiasTee(app.biasTee);
-        }
-        if (drawPpmAdjust("PPM", &app.ppm))
-        {
-            if (running) app.rtltcp.setPpm((double)app.ppm);
-        }
-        ImGui::TextDisabled("Remote rtl_tcp server. Connect and stream.");
-    }
     if (app.sourceMode == 4)
     {
         // ---- Dual RTL: two independent RTL-SDRs ----
@@ -652,52 +494,7 @@ void drawControls(App& app)
     }
 
     ImGui::Separator();
-    const char* bauds[] = {"600", "1200", "8400", "10500", "Inmarsat-C/EGC"};
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, app.lightMode
-        ? ImVec4(0.70f, 0.78f, 0.90f, 1.0f) : ImVec4(0.10f, 0.18f, 0.42f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, app.lightMode
-        ? ImVec4(0.78f, 0.85f, 0.95f, 1.0f) : ImVec4(0.15f, 0.28f, 0.60f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, app.lightMode
-        ? ImVec4(0.65f, 0.73f, 0.88f, 1.0f) : ImVec4(0.12f, 0.22f, 0.50f, 1.0f));
-    ImGui::Combo(_L("Decode baud"), &app.newBaud, bauds, 5);
-    ImGui::PopStyleColor(3);
-    ImGui::TextDisabled("Ctrl+click the spectrum to add a decoder there");
-
-    ImGui::Separator();
-    ImGui::Checkbox(_L("Follow C-channel voice"), &app.voiceFollow);
-    if (app.sourceMode == 1)
-        ImGui::TextDisabled("  (WAV: only voice already in-band can be followed)");
-    ImGui::SetNextItemWidth(140.0f);
-    ImGui::SliderFloat("Hold (s)", &app.followHoldSec, 1.0f, 30.0f, "%.0f");
-    if (app.following)
-    {
-        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.35f, 1.0f),
-                           "  Following ch %d @ %.4f MHz%s", app.followChannelId,
-                           app.centerFreqMHz, app.followRetuned ? " (hopped)" : "");
-    }
-    else if (app.voiceFollow)
-    {
-        ImGui::TextDisabled("  Waiting for a voice assignment...");
-    }
-
-    ImGui::Separator();
-    if (ImGui::CollapsingHeader(_L("CallHunter (auto-scan for voice)")))
-    {
-        ImGui::Checkbox(_L("Enable CallHunter"), &app.callHunterMode);
-        ImGui::SliderFloat(_L("Threshold (dB above baseline)"), &app.callHunterThreshDB, 1.0f, 20.0f, "%.1f");
-        ImGui::SliderInt(_L("Confirm frames"), &app.callHunterConfirm, 5, 60);
-        ImGui::SliderInt(_L("Lost frames"), &app.callHunterLost, 10, 120);
-
-        int activeN = 0, candN = (int)app.callHunterCands.size();
-        for (auto& c : app.callHunterCands)
-            if (c.channelId >= 0) ++activeN;
-        if (app.callHunterWarmup > 0)
-            ImGui::TextDisabled("Settling baseline... (%d)", app.callHunterWarmup);
-        else
-            ImGui::TextDisabled("Candidates: %d tracked, %d decoders active", candN, activeN);
-        if (app.following)
-            ImGui::TextDisabled("(paused — voice‑follow is active)");
-    }
+    ImGui::TextDisabled("Ctrl+click the spectrum to add a channel decoder there");
 
     ImGui::Separator();
     if (ImGui::CollapsingHeader(_L("Database (SQLite log)")))
@@ -771,7 +568,7 @@ void drawControls(App& app)
                                    app.outSbsPort);
         }
         ImGui::Text("Sent: %llu", (unsigned long long)app.feed.sent());
-        ImGui::TextDisabled("ACARS -> JAERO JSONdump; EGC -> STD-C JSON.");
+        ImGui::TextDisabled("ACARS -> JAERO JSONdump.");
         ImGui::TextDisabled("SBS: VRS receiver -> Network, 127.0.0.1, this port, BaseStation.");
     }
 
@@ -927,9 +724,8 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
         for (auto& d : decs)
         {
             double x = d.freqMHz;
-            ImVec4 col = d.monitored ? ImVec4(0.3f, 0.5f, 1.0f, 1.0f)   // blue = active monitor
-                       : d.locked    ? ImVec4(0.2f, 1.0f, 0.35f, 1.0f)  // green = locked
-                                     : ImVec4(0.9f, 0.7f, 0.2f, 1.0f); // orange = unlocked
+            ImVec4 col = d.locked ? ImVec4(0.2f, 1.0f, 0.35f, 1.0f)   // green = locked
+                                  : ImVec4(0.9f, 0.7f, 0.2f, 1.0f);  // orange = unlocked
             if (ImPlot::DragLineX(d.channelId, &x, col, 2.0f))
                 mgr.setDecoderFreq(d.channelId, x * 1e6);
         }
@@ -947,7 +743,7 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
         else
             browseSdr = app.active;
         if (allowBandBrowse && app.bandBrowse && app.sourceMode != 1 &&
-            browseSdr->running() && !v.resetView && !app.following)
+            browseSdr->running() && !v.resetView)
         {
             double viewCtr = 0.5 * (v.viewXminMHz + v.viewXmaxMHz);
             double viewHalf = 0.5 * (v.viewXmaxMHz - v.viewXminMHz);
@@ -1012,11 +808,7 @@ void drawSpectrum(App& app, SpectrumView& v, DecoderManager& mgr, const char* ti
             if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && app.placingDecoder)
             {
                 app.placingDecoder = false;
-                int baud;
-                static const int kBaudVals[] = {600, 1200, 8400, 10500, kEgcBaud};
-                int idx = app.newBaud < 0 ? 0 : (app.newBaud > 4 ? 4 : app.newBaud);
-                baud = kBaudVals[idx];
-                mgr.addDecoder(mp.x * 1e6, baud);
+                mgr.addDecoder(mp.x * 1e6, 1200);
             }
         }
         else if (app.placingDecoder && app.placingVoiceView == voiceView)
@@ -1184,33 +976,13 @@ void drawDecoders(App& app)
     ImGui::SameLine();
     copyAllButton(decsCopy);
 
-    int vm = app.decoders.voiceMonitor();
-    int vmB = app.dualMode ? app.decodersB.voiceMonitor() : -1;
-    if (vm >= 0 || vmB >= 0)
-    {
-        if (vm >= 0) ImGui::Text("Voice: monitoring ch %d", vm);
-        if (vmB >= 0) ImGui::Text("Voice B: monitoring ch %d", vmB);
-    }
-        ImGui::TextDisabled("Voice: (no 8400 decoder)");
-    ImGui::SameLine();
-    float lvl = app.decoders.audioLevel() * 5.0f;
-    if (lvl > 1.0f) lvl = 1.0f;
-    ImGui::ProgressBar(lvl, ImVec2(110, 0), "");
-    ImGui::SameLine();
-    if (ImGui::Checkbox(_L("Mute"), &app.voiceMuted))
-    {
-        app.decoders.setVoiceMute(app.voiceMuted);
-        app.decodersB.setVoiceMute(app.voiceMuted);
-    }
-
-    ImGui::SameLine();
     if (ImGui::Checkbox(_L("CPU reduce"), &app.cpuReduce))
     {
         app.decoders.setCpuReduce(app.cpuReduce);
         app.decodersB.setCpuReduce(app.cpuReduce);
     }
 
-    // Audio output device picker.
+    // Audio output device picker (used by VHF voice in later phases).
     if (app.audioDevs.empty())
         app.audioDevs = app.decoders.audioDevices();
     {
@@ -1230,102 +1002,26 @@ void drawDecoders(App& app)
         if (ImGui::SmallButton("Refresh##aud"))
         {
             app.audioDevs = app.decoders.audioDevices();
-            app.decodersB.audioDevices(); // keep B's cache aligned
+            app.decodersB.audioDevices();
         }
     }
 
-    if (ImGui::Checkbox(_L("Record voice calls"), &app.recordVoice))
-    {
-        app.decoders.setRecording(app.recordVoice, app.recordDir);
-        app.decodersB.setRecording(app.recordVoice, app.recordDir);
-        // Re-apply the format so it always matches the current combo choice.
-        RecordFormat rf = (app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV;
-        app.decoders.setRecordFormat(rf);
-        app.decodersB.setRecordFormat(rf);
-    }
-    ImGui::SameLine();
-    const char* recFmts[] = {"WAV", "OGG"};
-    ImGui::SetNextItemWidth(70);
-    if (ImGui::Combo("##recfmt", &app.recordFormat, recFmts, 2))
-    {
-        RecordFormat fmt = (app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV;
-        app.decoders.setRecordFormat(fmt);
-        app.decodersB.setRecordFormat(fmt);
-    }
-    ImGui::SameLine();
-    if (app.recordVoice)
-        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "REC  (%d active, %s)",
-                           app.decoders.recordingCount(),
-                           app.recordFormat ? "OGG" : "WAV");
-    else
-        ImGui::TextDisabled("(saves every 8400 call to its own %s)",
-                            app.recordFormat ? "OGG" : "WAV");
-    ImGui::BeginDisabled(app.recordVoice);
-    ImGui::SetNextItemWidth(-90.0f);
-    ImGui::InputText("Folder", app.recordDir, sizeof(app.recordDir));
-    ImGui::EndDisabled();
-
-    if (ImGui::Checkbox("Save decoders on restart", &app.saveDecoders))
-    {
-        // Don't save 8400 decoders since voice frequencies change
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(excludes 8400 voice)");
-
-    // Country blacklist — voice calls from these countries won't be monitored.
-    {
-        ImGui::Spacing();
-        ImGui::Text("Voice country blacklist:");
-        static char blBuf[4] = "";
-        ImGui::SetNextItemWidth(50);
-        ImGui::SameLine();
-        ImGui::InputText("##blcode", blBuf, sizeof(blBuf),
-                         ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_EnterReturnsTrue);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Add##bladd"))
-        {
-            if (blBuf[0] && blBuf[1] && !blBuf[2])
-            {
-                std::string cc(blBuf, 2);
-                auto& bl2 = app.blacklistCountries;
-                if (std::find(bl2.begin(), bl2.end(), cc) == bl2.end())
-                    bl2.push_back(cc);
-                blBuf[0] = blBuf[1] = blBuf[2] = 0;
-            }
-        }
-        bool first = true;
-        for (size_t i = 0; i < app.blacklistCountries.size(); ++i)
-        {
-            if (!first) ImGui::SameLine();
-            first = false;
-            ImGui::Text("%s", app.blacklistCountries[i].c_str());
-            ImGui::SameLine();
-            char xbtn[12];
-            std::snprintf(xbtn, sizeof(xbtn), "X##bl%zu", i);
-            if (ImGui::SmallButton(xbtn))
-            {
-                app.blacklistCountries.erase(app.blacklistCountries.begin() + (ptrdiff_t)i);
-                break;
-            }
-        }
-        ImGui::Spacing();
-    }
+    ImGui::Checkbox("Save decoders on restart", &app.saveDecoders);
 
     ImGui::Separator();
 
-    if (ImGui::BeginTable("##decs", 6,
+    if (ImGui::BeginTable("##decs", 5,
                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
     {
-        ImGui::TableSetupColumn("Lock", ImGuiTableColumnFlags_WidthFixed, 36);
+        ImGui::TableSetupColumn("Lock", ImGuiTableColumnFlags_WidthFixed, 44);
         ImGui::TableSetupColumn("Freq MHz");
         ImGui::TableSetupColumn("Baud");
         ImGui::TableSetupColumn("Eb/N0");
         ImGui::TableSetupColumn("Msgs");
-        ImGui::TableSetupColumn("");
         ImGui::TableHeadersRow();
 
         int toRemove = -1;
-    bool toRemoveB = false;
+        bool toRemoveB = false;
         std::vector<std::string> copyRows;
         for (auto& d : decs)
         {
@@ -1334,62 +1030,28 @@ void drawDecoders(App& app)
             ImGui::TableNextColumn();
             char selid[24];
             std::snprintf(selid, sizeof(selid), "##sel%d", uid);
-            ImVec4 c = d.monitored ? ImVec4(0.3f, 0.5f, 1.0f, 1.0f)
-                     : d.locked    ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
-                                   : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+            ImVec4 c = d.locked ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
+                                : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
             ImGui::PushStyleColor(ImGuiCol_Header, c);
             ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(c.x*1.3f, c.y*1.3f, c.z*1.3f, 1.0f));
             bool sel = (app.selectedDecoder == d.channelId);
             if (ImGui::Selectable(selid, sel, ImGuiSelectableFlags_None))
-            {
                 app.selectedDecoder = d.channelId;
-                if (d.isVoice && !d.isB)
-                    app.decoders.setVoiceMonitor(d.channelId);
-            }
             ImGui::PopStyleColor(2);
             ImGui::SameLine();
-            ImGui::TextColored(c, "%s", d.monitored ? "MON" : d.locked ? "LOCK" : "--");
+            ImGui::TextColored(c, "%s", d.locked ? "LOCK" : "--");
             ImGui::TableNextColumn();
             ImGui::Text("%.4f", d.freqMHz);
             ImGui::TableNextColumn();
-            if (d.baud == kEgcBaud)
-            {
-                if (d.egcCType == 1)
-                    ImGui::TextUnformatted("EGC (NCS)");
-                else if (d.egcCType == 2)
-                    ImGui::TextUnformatted("EGC (LES)");
-                else
-                    ImGui::TextUnformatted("EGC");
-            }
-            else
-                ImGui::Text("%d", d.baud);
+            ImGui::Text("%d", d.baud);
             ImGui::TableNextColumn();
-            if (d.baud == kEgcBaud)
-            {
-                if (d.egcFrames > 0)
-                {
-                    ImVec4 berCol = d.egcBer < 0  ? ImVec4(0.5f, 0.5f, 0.5f, 1.0f)
-                                  : d.egcBer <= 10 ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
-                                  : d.egcBer <= 50 ? Lc(app, ImVec4(1.0f, 0.85f, 0.2f, 1.0f))
-                                                   : ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
-                    ImGui::TextColored(berCol, "BER %d (%dfr)", d.egcBer, d.egcFrames);
-                }
-                else
-                    ImGui::TextDisabled("--");
-            }
-            else
-            {
-                double loRed, hiGreen;
-                if (d.baud == 600 || d.baud == 1200) { loRed = 5.0; hiGreen = 8.0; }
-                else                                 { loRed = 4.0; hiGreen = 6.0; }
-                ImVec4 ebCol = d.ebno < loRed  ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f)
-                             : d.ebno < hiGreen ? Lc(app, ImVec4(1.0f, 0.85f, 0.2f, 1.0f))
-                                                : Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f));
-                ImGui::TextColored(ebCol, "%.1f", d.ebno);
-            }
+            ImGui::Text("%.1f", d.ebno);
             ImGui::TableNextColumn();
             ImGui::Text("%llu", (unsigned long long)d.msgs);
-            ImGui::TableNextColumn();
+            copyRows.push_back(copyFmt("%.4f\t%d\t%.1f\t%llu", d.freqMHz, d.baud, d.ebno,
+                (unsigned long long)d.msgs));
+
+            ImGui::SameLine();
             char btn[24];
             std::snprintf(btn, sizeof(btn), "X##%d", uid);
             if (ImGui::SmallButton(btn))
@@ -1397,13 +1059,6 @@ void drawDecoders(App& app)
                 toRemove = d.channelId;
                 toRemoveB = d.isB;
             }
-            if (d.baud == kEgcBaud)
-                copyRows.push_back(copyFmt("%.4f\tEGC\t%s\t%llu", d.freqMHz,
-                    d.egcFrames > 0 ? copyFmt("BER %d", d.egcBer).c_str() : "--",
-                    (unsigned long long)d.msgs));
-            else
-                copyRows.push_back(copyFmt("%.4f\t%d\t%.1f\t%llu", d.freqMHz, d.baud, d.ebno,
-                    (unsigned long long)d.msgs));
         }
         handleTableCopy(copyRows);
         decsCopy = copyJoin(copyRows);
@@ -1413,120 +1068,6 @@ void drawDecoders(App& app)
             if (toRemoveB) app.decodersB.removeDecoder(toRemove);
             else           app.decoders.removeDecoder(toRemove);
         }
-    }
-
-    ImGui::End();
-}
-
-void drawSUs(App& app)
-{
-    ImGui::Begin((std::string(_L("SUs")) + "###SUs").c_str());
-
-    unsigned long long suTotal = app.decoders.suLog().count();
-    if (app.dualMode) suTotal += app.decodersB.suLog().count();
-    ImGui::Text("%llu total", suTotal);
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.suLog().clear();
-        if (app.dualMode) app.decodersB.suLog().clear();
-    }
-    static std::string suCopy;
-    ImGui::SameLine();
-    copyAllButton(suCopy);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputTextWithHint("##searchsu", "Search...", app.searchBuf, sizeof(app.searchBuf));
-
-    // Session archive dropdown for SUs.
-    if (!app.archiveDbLabels.empty())
-    {
-        std::vector<const char*> items;
-        items.push_back("Live");
-        for (auto& lbl : app.archiveDbLabels)
-            items.push_back(lbl.c_str());
-        ImGui::SetNextItemWidth(200);
-        if (ImGui::Combo("Session", &app.archiveComboSu, items.data(), (int)items.size()))
-        {
-            if (app.archiveComboSu == 0)
-            {
-                app.decoders.suLog().clearArchive();
-            }
-            else
-            {
-                int idx = app.archiveComboSu - 1;
-                if (idx < (int)app.archiveDbPaths.size())
-                    app.writeDb.loadAcarsOrSu(app.archiveDbPaths[idx],
-                                              MessageStore::SU,
-                                              &app.decoders.suLog(), 0);
-            }
-        }
-        if (app.decoders.suLog().hasArchive())
-            ImGui::TextDisabled("  Viewing archived session");
-    }
-    ImGui::Separator();
-
-    auto msgs = app.decoders.suLog().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.suLog().snapshot();
-        msgs.insert(msgs.end(), b.begin(), b.end());
-    }
-    std::sort(msgs.begin(), msgs.end(),
-              [](const DecodedMessage& a, const DecodedMessage& b) { return a.timeSec > b.timeSec; });
-    std::string searchLower;
-    bool hasSearch = (app.searchBuf[0] != 0);
-    if (hasSearch)
-    {
-        searchLower = app.searchBuf;
-        for (auto& ch : searchLower) ch = (char)std::tolower((unsigned char)ch);
-    }
-    if (ImGui::BeginTable("##sus", 3,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Freq", ImGuiTableColumnFlags_WidthFixed, 70);
-        ImGui::TableSetupColumn("Text", ImGuiTableColumnFlags_WidthFixed, 220);
-        ImGui::TableSetupColumn("Bytes");
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (auto it = msgs.begin(); it != msgs.end(); ++it)
-        {
-            if (hasSearch)
-            {
-                std::string hay = it->text + "|" + it->hex;
-                for (auto& ch : hay) ch = (char)std::tolower((unsigned char)ch);
-                if (hay.find(searchLower) == std::string::npos)
-                    continue;
-            }
-            ImGui::TableNextRow();
-
-            // Colorize by SU type
-            ImVec4 col = ImVec4(0.7f, 0.7f, 0.7f, 1.0f); // default gray
-            if (it->suType == 0x30 && it->aesId != 0)      // Call progress — per-aircraft color
-            {
-                float hue = (it->aesId * 0.618033988749895f); // golden ratio conjugate
-                hue = hue - (int)hue;
-                ImGui::ColorConvertHSVtoRGB(hue, 0.8f, 0.9f, col.x, col.y, col.z);
-            }
-            else if (it->suType == 0x21)                    // Call announcement
-                col = Lc(app, ImVec4(1.0f, 0.85f, 0.2f, 1.0f));     // gold
-            else if (it->suType >= 0x31 && it->suType <= 0x34) // C-channel assignment
-                col = Lc(app, ImVec4(0.3f, 0.7f, 1.0f, 1.0f));     // blue
-
-            ImGui::TableNextColumn();
-            ImGui::Text("%.3f", it->freqMHz);
-            ImGui::TableNextColumn();
-            ImGui::TextColored(col, "%s", it->text.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(it->hex.c_str());
-            copyRows.push_back(copyFmt("%.3f\t%s\t%s", it->freqMHz, it->text.c_str(), it->hex.c_str()));
-        }
-        handleTableCopy(copyRows);
-        suCopy = copyJoin(copyRows);
-        ImGui::EndTable();
     }
 
     ImGui::End();
@@ -1794,170 +1335,6 @@ void drawAircraft(App& app)
     ImGui::End();
 }
 
-const char* cassignTypeName(uint8_t t)
-{
-    switch (t)
-    {
-    case 0x31: return "Distress";
-    case 0x32: return "Flight safety";
-    case 0x33: return "Other safety";
-    case 0x34: return "Non-safety";
-    default: return "C-channel";
-    }
-}
-
-// Manually tune to a C-channel voice assignment: retune the SDR off the carrier
-// (DC avoidance) if it is out of band, then drop an 8400 voice decoder on it and
-// monitor it. Used by the C-Channel "Tune" button (works with auto-follow off).
-
-void drawCChannel(App& app)
-{
-    ImGui::Begin((std::string(_L("C-Channel")) + "###C-Channel").c_str());
-
-    unsigned long long cTotal = app.decoders.cassignLog().count();
-    if (app.dualMode) cTotal += app.decodersB.cassignLog().count();
-    ImGui::Text("%llu assignment(s)", cTotal);
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.cassignLog().clear();
-        if (app.dualMode) app.decodersB.cassignLog().clear();
-    }
-    static std::string cchanCopy;
-    ImGui::SameLine();
-    copyAllButton(cchanCopy);
-    ImGui::Separator();
-
-    auto items = app.decoders.cassignLog().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.cassignLog().snapshot();
-        items.insert(items.end(), b.begin(), b.end());
-    }
-    if (ImGui::BeginTable("##cchan", 6,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 96);
-        ImGui::TableSetupColumn("AES", ImGuiTableColumnFlags_WidthFixed, 64);
-        ImGui::TableSetupColumn("GES", ImGuiTableColumnFlags_WidthFixed, 40);
-        ImGui::TableSetupColumn("RX / down (MHz)");
-        ImGui::TableSetupColumn("TX / up (MHz)");
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 52);
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        // Oldest-first (newest appended at the bottom) so the list grows
-        // downward and doesn't shift content out from under a scrolled-up user.
-        for (size_t i = 0; i < items.size(); ++i)
-        {
-            const auto& it = items[i];
-            ImGui::TableNextRow();
-            ImGui::PushID((int)i);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(cassignTypeName(it.type));
-            ImGui::TableNextColumn();
-            ImGui::Text("%06X", it.aesId);
-            ImGui::TableNextColumn();
-            ImGui::Text("%02X", it.gesId);
-            ImGui::TableNextColumn();
-            ImGui::Text("%.4f", it.rxMHz);
-            ImGui::TableNextColumn();
-            ImGui::Text("%.4f", it.txMHz);
-            ImGui::TableNextColumn();
-            if (it.rxMHz > 1.0)
-            {
-                ImGui::BeginDisabled(!app.active->running() ||
-                                     (app.sourceMode == 1));
-                if (ImGui::SmallButton("Tune"))
-                    tuneToVoice(app, it.rxMHz, it.aesId);
-                ImGui::EndDisabled();
-            }
-            copyRows.push_back(copyFmt("%s\t%06X\t%02X\t%.4f\t%.4f",
-                cassignTypeName(it.type), it.aesId, it.gesId, it.rxMHz, it.txMHz));
-            ImGui::PopID();
-        }
-
-        // Keep pinned to the newest row only while the user is already at the
-        // bottom; if they scroll up, leave their position alone.
-        if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
-            ImGui::SetScrollHereY(1.0f);
-
-        handleTableCopy(copyRows);
-        cchanCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-    ImGui::End();
-}
-
-void drawNetwork(App& app)
-{
-    ImGui::Begin((std::string(_L("Network")) + "###Network").c_str());
-
-    SatInfo sat = app.decoders.channelTable().satellite();
-    if (sat.valid)
-        ImGui::Text("Satellite ID: %d   Longitude: %s", sat.satId, sat.longitude.c_str());
-    else
-        ImGui::TextDisabled("Satellite: (waiting for system table)");
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-        app.decoders.channelTable().clear();
-    static std::string netCopy;
-    ImGui::SameLine();
-    copyAllButton(netCopy);
-    ImGui::TextDisabled("Discovered from system-table broadcasts. RX = forward (decodable).");
-    ImGui::Separator();
-
-    auto chans = app.decoders.channelTable().snapshot();
-    if (ImGui::BeginTable("##net", 5,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Freq MHz", ImGuiTableColumnFlags_WidthFixed, 80);
-        ImGui::TableSetupColumn("Type");
-        ImGui::TableSetupColumn("GES", ImGuiTableColumnFlags_WidthFixed, 40);
-        ImGui::TableSetupColumn("Hits", ImGuiTableColumnFlags_WidthFixed, 48);
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 60);
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (size_t i = 0; i < chans.size(); ++i)
-        {
-            const auto& c = chans[i];
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%.4f", c.freqMHz);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(c.kind.c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%02X", c.ges);
-            ImGui::TableNextColumn();
-            ImGui::Text("%llu", (unsigned long long)c.hits);
-            ImGui::TableNextColumn();
-            if (c.decodable)
-            {
-                char btn[24];
-                std::snprintf(btn, sizeof(btn), "Tune##%zu", i);
-                if (ImGui::SmallButton(btn))
-                    app.decoders.addDecoder(c.freqMHz * 1e6, c.baud);
-            }
-            else
-            {
-                ImGui::TextDisabled("return");
-            }
-            copyRows.push_back(copyFmt("%.4f\t%s\t%02X\t%llu",
-                c.freqMHz, c.kind.c_str(), c.ges, (unsigned long long)c.hits));
-        }
-        handleTableCopy(copyRows);
-        netCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-
-    ImGui::End();
-}
-
 #if defined(_WIN32)
 void drawFlightMap(App& app)
 {
@@ -1968,16 +1345,6 @@ void drawFlightMap(App& app)
               [](const AircraftEntry& a, const AircraftEntry& b) { return a.lastSeen > b.lastSeen; });
     const AircraftEntry* pick = nullptr;
 
-    // Prefer the ICAO of the voice call the user is currently listening to.
-    uint32_t monitoredAes = app.decoders.voiceAes();
-    if (monitoredAes) {
-        std::string monitoredIcao = app.decoders.aircraftTable().icao(monitoredAes);
-        if (!monitoredIcao.empty()) {
-            for (auto& a : acs) {
-                if (a.aesId == monitoredAes) { pick = &a; break; }
-            }
-        }
-    }
     if (!pick) {
         for (auto& a : acs)
             if (!a.icao.empty()) { pick = &a; break; }
@@ -2036,303 +1403,6 @@ void drawFlightMap(App& app)
 void drawFlightMap(App&) {}
 #endif // _WIN32
 
-void drawEgc(App& app)
-{
-    ImGui::Begin((std::string(_L("EGC")) + "###EGC").c_str());
-
-    unsigned long long egcTotal = app.decoders.egcLog().count();
-    if (app.dualMode) egcTotal += app.decodersB.egcLog().count();
-    ImGui::Text("%llu message(s)", egcTotal);
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.egcLog().clear();
-        if (app.dualMode) app.decodersB.egcLog().clear();
-    }
-    static std::string egcCopy;
-    ImGui::SameLine();
-    copyAllButton(egcCopy);
-    ImGui::SameLine();
-    static bool showEgc = true, showTerminal = true;
-    ImGui::Checkbox("EGC", &showEgc); ImGui::SameLine();
-    ImGui::Checkbox("STDC", &showTerminal);
-    ImGui::TextDisabled("Inmarsat-C SafetyNET / FleetNET / system messages.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputTextWithHint("##searchegc", "Search...", app.searchBuf, sizeof(app.searchBuf));
-
-    // Session archive dropdown for EGC.
-    if (!app.archiveDbLabels.empty())
-    {
-        std::vector<const char*> items;
-        items.push_back("Live");
-        for (auto& lbl : app.archiveDbLabels)
-            items.push_back(lbl.c_str());
-        ImGui::SetNextItemWidth(200);
-        if (ImGui::Combo("Session", &app.archiveComboEgc, items.data(), (int)items.size()))
-        {
-            if (app.archiveComboEgc == 0)
-                app.decoders.egcLog().clearArchive();
-            else
-            {
-                int idx = app.archiveComboEgc - 1;
-                if (idx < (int)app.archiveDbPaths.size())
-                    app.writeDb.loadEgc(app.archiveDbPaths[idx], &app.decoders.egcLog());
-            }
-        }
-        if (app.decoders.egcLog().hasArchive())
-            ImGui::TextDisabled("  Viewing archived session");
-    }
-    ImGui::Separator();
-
-    std::string searchLower;
-    bool hasSearch = (app.searchBuf[0] != 0);
-    if (hasSearch)
-    {
-        searchLower = app.searchBuf;
-        for (auto& ch : searchLower) ch = (char)std::tolower((unsigned char)ch);
-    }
-
-    auto msgs = app.decoders.egcLog().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.egcLog().snapshot();
-        msgs.insert(msgs.end(), b.begin(), b.end());
-    }
-    if (ImGui::BeginTable("##egc", 5,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 64);
-        ImGui::TableSetupColumn("Priority", ImGuiTableColumnFlags_WidthFixed, 64);
-        ImGui::TableSetupColumn("MsgId", ImGuiTableColumnFlags_WidthFixed, 52);
-        ImGui::TableSetupColumn("Service", ImGuiTableColumnFlags_WidthFixed, 200);
-        ImGui::TableSetupColumn("Message");
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (auto it = msgs.rbegin(); it != msgs.rend(); ++it)
-        {
-            bool isTerminal = (it->priority == "Terminal");
-            if (isTerminal && !showTerminal) continue;
-            if (!isTerminal && !showEgc) continue;
-            if (hasSearch)
-            {
-                std::string hay = it->text + "|" + it->service + "|" + it->priority + "|" + it->timeUtc;
-                for (auto& ch : hay) ch = (char)std::tolower((unsigned char)ch);
-                if (hay.find(searchLower) == std::string::npos)
-                    continue;
-            }
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(it->timeUtc.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(it->priority.c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", it->messageId);
-            ImGui::TableNextColumn();
-            ImGui::TextWrapped("%s", it->service.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextWrapped("%s", it->text.c_str());
-            copyRows.push_back(copyFmt("%s\t%s\t%d\t%s\t%s",
-                it->timeUtc.c_str(), it->priority.c_str(), it->messageId,
-                it->service.c_str(), it->text.c_str()));
-        }
-        handleTableCopy(copyRows);
-        egcCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-
-    ImGui::End();
-}
-
-void drawMes(App& app)
-{
-    ImGui::Begin((std::string(_L("MES")) + "###MES").c_str());
-
-    auto entries = app.decoders.mesLog().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.mesLog().snapshot();
-        entries.insert(entries.end(), b.begin(), b.end());
-    }
-    ImGui::Text("%zu terminal(s)", entries.size());
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.mesLog().clear();
-        if (app.dualMode) app.decodersB.mesLog().clear();
-    }
-    static std::string mesCopy;
-    ImGui::SameLine();
-    copyAllButton(mesCopy);
-    ImGui::Separator();
-
-    std::sort(entries.begin(), entries.end(),
-              [](const MesEntry& a, const MesEntry& b) { return a.lastSeen > b.lastSeen; });
-
-    double now = (double)std::time(nullptr);
-    if (ImGui::BeginTable("##mes", 7,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("MES ID", ImGuiTableColumnFlags_WidthFixed, 70);
-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 80);
-        ImGui::TableSetupColumn("Sat", ImGuiTableColumnFlags_WidthFixed, 52);
-        ImGui::TableSetupColumn("LES", ImGuiTableColumnFlags_WidthFixed, 36);
-        ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed, 32);
-        ImGui::TableSetupColumn("Age", ImGuiTableColumnFlags_WidthFixed, 48);
-        ImGui::TableSetupColumn("Msgs", ImGuiTableColumnFlags_WidthFixed, 48);
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (auto& e : entries)
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%u", e.mesId);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(e.action.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(e.sat.c_str());
-            ImGui::TableNextColumn();
-            if (e.les >= 0) ImGui::Text("%02d", e.les);
-            ImGui::TableNextColumn();
-            if (e.channel >= 0) ImGui::Text("%d", e.channel);
-            ImGui::TableNextColumn();
-            ImGui::Text("%ds", (int)(now - e.lastSeen));
-            ImGui::TableNextColumn();
-            ImGui::Text("%llu", (unsigned long long)e.msgs);
-            copyRows.push_back(copyFmt("%u\t%s\t%s\t%d\t%d\t%ds\t%llu",
-                e.mesId, e.action.c_str(), e.sat.c_str(), e.les, e.channel,
-                (int)(now - e.lastSeen), (unsigned long long)e.msgs));
-        }
-        handleTableCopy(copyRows);
-        mesCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-
-    ImGui::End();
-}
-
-void drawLes(App& app)
-{
-    ImGui::Begin((std::string(_L("LES")) + "###LES").c_str());
-
-    unsigned long long lesTotal = app.decoders.lesLog().count();
-    if (app.dualMode) lesTotal += app.decodersB.lesLog().count();
-    ImGui::Text("%llu message(s)", lesTotal);
-    ImGui::SameLine();
-    if (ImGui::SmallButton(_L("Clear")))
-    {
-        app.decoders.lesLog().clear();
-        if (app.dualMode) app.decodersB.lesLog().clear();
-    }
-    static std::string lesCopy;
-    ImGui::SameLine();
-    copyAllButton(lesCopy);
-    ImGui::SameLine();
-    static bool hideEncrypted = false;
-    ImGui::Checkbox(_L("Hide encrypted"), &hideEncrypted);
-    ImGui::TextDisabled("LES private ship/shore messages (0xAA non-EGC).");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(-1.0f);
-    ImGui::InputTextWithHint("##searchles", "Search...", app.searchBuf, sizeof(app.searchBuf));
-
-    // Session archive dropdown for LES.
-    if (!app.archiveDbLabels.empty())
-    {
-        std::vector<const char*> items;
-        items.push_back("Live");
-        for (auto& lbl : app.archiveDbLabels)
-            items.push_back(lbl.c_str());
-        ImGui::SetNextItemWidth(200);
-        if (ImGui::Combo("Session", &app.archiveComboLes, items.data(), (int)items.size()))
-        {
-            if (app.archiveComboLes == 0)
-                app.decoders.lesLog().clearArchive();
-            else
-            {
-                int idx = app.archiveComboLes - 1;
-                if (idx < (int)app.archiveDbPaths.size())
-                    app.writeDb.loadLes(app.archiveDbPaths[idx], &app.decoders.lesLog());
-            }
-        }
-        if (app.decoders.lesLog().hasArchive())
-            ImGui::TextDisabled("  Viewing archived session");
-    }
-    ImGui::Separator();
-
-    std::string searchLower;
-    bool hasSearch = (app.searchBuf[0] != 0);
-    if (hasSearch)
-    {
-        searchLower = app.searchBuf;
-        for (auto& ch : searchLower) ch = (char)std::tolower((unsigned char)ch);
-    }
-
-    auto msgs = app.decoders.lesLog().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.lesLog().snapshot();
-        msgs.insert(msgs.end(), b.begin(), b.end());
-    }
-    if (ImGui::BeginTable("##les", 6,
-                          ImGuiTableFlags_Borders |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 64);
-        ImGui::TableSetupColumn("LES", ImGuiTableColumnFlags_WidthFixed, 160);
-        ImGui::TableSetupColumn("Sat", ImGuiTableColumnFlags_WidthFixed, 52);
-        ImGui::TableSetupColumn("Ch", ImGuiTableColumnFlags_WidthFixed, 32);
-        ImGui::TableSetupColumn("Pkt", ImGuiTableColumnFlags_WidthFixed, 40);
-        ImGui::TableSetupColumn("Message");
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (auto it = msgs.rbegin(); it != msgs.rend(); ++it)
-        {
-            if (hideEncrypted && it->isEncrypted) continue;
-            if (hasSearch)
-            {
-                std::string hay = it->text + "|" + it->timeUtc + "|" + it->satName + "|" + it->lesLabel;
-                for (auto& ch : hay) ch = (char)std::tolower((unsigned char)ch);
-                if (hay.find(searchLower) == std::string::npos)
-                    continue;
-            }
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(it->timeUtc.c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s LES %02d", it->satName.c_str(), it->lesId);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(it->satName.c_str());
-            ImGui::TableNextColumn();
-            if (it->channel >= 0) ImGui::Text("%d", it->channel);
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", it->pktNo);
-            ImGui::TableNextColumn();
-            if (it->isEncrypted)
-                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 60, 60, 255));
-            else
-                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(60, 255, 60, 255));
-            ImGui::TextWrapped("%s", it->text.c_str());
-            ImGui::PopStyleColor();
-            copyRows.push_back(copyFmt("%s\t%s LES %02d\t%s\t%d\t%d\t%s",
-                it->timeUtc.c_str(), it->satName.c_str(), it->lesId,
-                it->satName.c_str(), it->channel, it->pktNo, it->text.c_str()));
-        }
-        handleTableCopy(copyRows);
-        lesCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-
-    ImGui::End();
-}
-
 ImPlotPoint constGetter(int idx, void* data)
 {
     const float* p = static_cast<const float*>(data);
@@ -2386,27 +1456,16 @@ void drawConstellation(App& app)
         }
     }
     char preview[128];
-    const char* baudStr = (preBaud == kEgcBaud) ? "EGC" : nullptr;
-    if (baudStr)
-        std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  %s%s",
-                      chan, freq, baudStr, preIsB ? " [B]" : "");
-    else
-        std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  @%d%s",
-                      chan, freq, preBaud, preIsB ? " [B]" : "");
+    std::snprintf(preview, sizeof(preview), "Channel %d  %.4f MHz  @%d%s",
+                  chan, freq, preBaud, preIsB ? " [B]" : "");
     ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::BeginCombo("Decoder", preview))
     {
         for (auto& d : decs)
         {
             char label[64];
-            const char* b = (d.baud == kEgcBaud) ? "EGC" : nullptr;
-            if (b)
-                std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  %s%s",
-                              d.channelId, d.freqMHz, b,
-                              d.isB ? " [B]" : "");
-            else
-                std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  @%d%s",
-                              d.channelId, d.freqMHz, d.baud,
+            std::snprintf(label, sizeof(label), "Channel %d  %.4f MHz  @%d%s",
+                          d.channelId, d.freqMHz, d.baud,
                               d.isB ? " [B]" : "");
             if (ImGui::Selectable(label, d.channelId == chan))
             {
@@ -2582,160 +1641,6 @@ void drawVoiceCalls(App& app)
 }
 
 // ---------------------------------------------------------------------------
-// LES Frequencies browser
-// ---------------------------------------------------------------------------
-
-void drawLesFreq(App& app)
-{
-    ImGui::Begin((std::string(_L("LES Freq")) + "###LES Freq").c_str());
-
-    if (app.autoAddLes && app.active->running())
-    {
-        double center = app.active->centerFreq();
-        double halfSpan = app.active->sampleRate() / 2.0;
-        auto ents = app.decoders.lesFreqTable().snapshot();
-        int added = 0;
-        for (auto& e : ents)
-        {
-            if (e.hasDecoder) continue;
-            if (added >= app.maxLesAutoDecoders) break;
-            double offset = std::fabs(e.freqMHz * 1e6 - center);
-            if (offset > halfSpan * 0.95) continue;
-            bool dup = false;
-            for (auto& s : app.decoders.status())
-                if (std::fabs(s.freqMHz - e.freqMHz) < 0.001 && s.baud == kEgcBaud)
-                    { dup = true; break; }
-            if (dup) continue;
-            int id = app.decoders.addDecoder(e.freqMHz * 1e6, kEgcBaud);
-            if (id >= 0)
-            {
-                app.decoders.lesFreqTable().setHasDecoder(e.freqMHz, true);
-                ++added;
-            }
-        }
-        if (app.dualMode && app.sdrB.running())
-        {
-            double centerB = app.sdrB.centerFreq();
-            double halfSpanB = app.sdrB.sampleRate() / 2.0;
-            for (auto& e : ents)
-            {
-                if (e.hasDecoder) continue;
-                if (added >= app.maxLesAutoDecoders) break;
-                double offset = std::fabs(e.freqMHz * 1e6 - centerB);
-                if (offset > halfSpanB * 0.95) continue;
-                bool dup = false;
-                for (auto& s : app.decodersB.status())
-                    if (std::fabs(s.freqMHz - e.freqMHz) < 0.001 && s.baud == kEgcBaud)
-                        { dup = true; break; }
-                if (dup) continue;
-                int id = app.decodersB.addDecoder(e.freqMHz * 1e6, kEgcBaud);
-                if (id >= 0)
-                {
-                    app.decodersB.lesFreqTable().setHasDecoder(e.freqMHz, true);
-                    ++added;
-                }
-            }
-        }
-    }
-
-    auto ents = app.decoders.lesFreqTable().snapshot();
-    if (app.dualMode)
-    {
-        auto b = app.decodersB.lesFreqTable().snapshot();
-        for (auto& e : b)
-        {
-            bool dup = false;
-            for (auto& ea : ents)
-                if (std::fabs(ea.freqMHz - e.freqMHz) < 0.001) { dup = true; break; }
-            if (!dup) ents.push_back(e);
-        }
-    }
-    std::sort(ents.begin(), ents.end(),
-              [](const LesFreqEntry& a, const LesFreqEntry& b) { return a.freqMHz < b.freqMHz; });
-
-    ImGui::Text("%d discovered", (int)ents.size());
-    static std::string lesfCopy;
-    ImGui::SameLine();
-    copyAllButton(lesfCopy);
-    ImGui::SameLine();
-    ImGui::Checkbox("Auto-add", &app.autoAddLes);
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(42);
-    ImGui::SliderInt("max", &app.maxLesAutoDecoders, 0, 8);
-
-    if (ImGui::BeginTable("##lesft", 6,
-                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                          ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable))
-    {
-        ImGui::TableSetupColumn("Freq", ImGuiTableColumnFlags_WidthFixed, 78);
-        ImGui::TableSetupColumn("Sat");
-        ImGui::TableSetupColumn("LES");
-        ImGui::TableSetupColumn("Svc", ImGuiTableColumnFlags_WidthFixed, 72);
-        ImGui::TableSetupColumn("Seen");
-        ImGui::TableSetupColumn("+");
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableHeadersRow();
-
-        std::vector<std::string> copyRows;
-        for (auto& e : ents)
-        {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%.3f", e.freqMHz);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(e.satName.c_str());
-            ImGui::TableNextColumn();
-            if (e.lesLabel.empty())
-                ImGui::TextDisabled("LES %02d", e.lesId);
-            else
-                ImGui::TextUnformatted(e.lesLabel.c_str());
-            ImGui::TableNextColumn();
-            char svc[32];
-            std::snprintf(svc, sizeof(svc), "%04X", e.services);
-            ImGui::TextUnformatted(svc);
-            ImGui::TableNextColumn();
-            double age = (double)std::time(nullptr) - e.lastSeen;
-            if (age < 60.0)
-                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%.0fs", age);
-            else
-                ImGui::TextDisabled("%.0fs", age);
-            ImGui::TableNextColumn();
-            if (e.hasDecoder)
-                ImGui::TextDisabled("ON");
-            else
-            {
-                char lbl[24];
-                std::snprintf(lbl, sizeof(lbl), "Add##lesf%d", (int)(e.freqMHz * 10000));
-                if (ImGui::SmallButton(lbl))
-                {
-                    double offsetA = app.active->running() ? std::fabs(e.freqMHz * 1e6 - app.active->centerFreq()) : 1e12;
-                    double offsetB = (app.dualMode && app.sdrB.running()) ? std::fabs(e.freqMHz * 1e6 - app.sdrB.centerFreq()) : 1e12;
-                    if (offsetA < app.active->sampleRate() / 2.0)
-                    {
-                        app.decoders.addDecoder(e.freqMHz * 1e6, kEgcBaud);
-                        app.decoders.lesFreqTable().setHasDecoder(e.freqMHz, true);
-                    }
-                    else if (offsetB < app.sdrB.sampleRate() / 2.0)
-                    {
-                        app.decodersB.addDecoder(e.freqMHz * 1e6, kEgcBaud);
-                        app.decodersB.lesFreqTable().setHasDecoder(e.freqMHz, true);
-                    }
-                }
-            }
-            copyRows.push_back(copyFmt("%.3f\t%s\t%s\t%04X",
-                e.freqMHz, e.satName.c_str(),
-                e.lesLabel.empty() ? copyFmt("LES %02d", e.lesId).c_str() : e.lesLabel.c_str(),
-                e.services));
-        }
-        handleTableCopy(copyRows);
-        lesfCopy = copyJoin(copyRows);
-        ImGui::EndTable();
-    }
-
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------------------
 // About dialog
 // ---------------------------------------------------------------------------
 
@@ -2755,14 +1660,10 @@ void drawAbout(App& app)
         ImGui::TextWrapped("AirScope was created by Sarah Rose.");
         ImGui::Spacing();
         ImGui::TextWrapped("Built with components from:");
-        ImGui::TextDisabled("  JAERO (Jontio)");
-        ImGui::TextDisabled("  inmarsat-sniffer");
-        ImGui::TextDisabled("  libaeroambe");
-        ImGui::TextDisabled("  mbelib (dsd)");
-        ImGui::TextDisabled("  scytaleC (Thierry Leconte)");
-        ImGui::TextDisabled("  DeDECTive (Sarah Rose)");
-        ImGui::Spacing();
-        ImGui::TextWrapped("Thanks to Arclamp VK4SUS for providing a server for accessing the satellite during development.");
+        ImGui::TextDisabled("  goadsb (Sarah Rose)");
+        ImGui::TextDisabled("  acarsdec (Thierry Leconte)");
+        ImGui::TextDisabled("  libacars (Tomasz Lemiech)");
+        ImGui::TextDisabled("  Dear ImGui / ImPlot");
         ImGui::Spacing();
         ImGui::TextWrapped("Thanks to Mike AA8IA for donating an Airspy R2 and Airspy Mini for development.");
     }
@@ -2838,16 +1739,9 @@ void drawDockHost(App& app)
 #if defined(_WIN32)
         ImGui::DockBuilderDockWindow((std::string(_L("Flight Map")) + "###Flight Map").c_str(), rmid);
 #endif
-        ImGui::DockBuilderDockWindow((std::string(_L("SUs")) + "###SUs").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Messages")) + "###Messages").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("C-Channel")) + "###C-Channel").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("Network")) + "###Network").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("EGC")) + "###EGC").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("MES")) + "###MES").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("LES")) + "###LES").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Aircraft")) + "###Aircraft").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Voice Calls")) + "###Voice Calls").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("LES Freq")) + "###LES Freq").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Constellation")) + "###Constellation").c_str(), rcon);
         ImGui::DockBuilderFinish(dockId);
     }

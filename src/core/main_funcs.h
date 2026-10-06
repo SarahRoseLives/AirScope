@@ -13,12 +13,8 @@ void processFft(SpectrumView&, App&, double fc, double fs);
 void updateRateChange(App&);
 
 // voice/voice_ops.cpp
-bool isVoiceAssign(uint8_t type);
 void retuneActive(App&, double centerMHz);
 void retunePreserving(App&, double centerMHz);
-void updateVoiceFollow(App&);
-void tuneToVoice(App&, double rxMHz, uint32_t aesId);
-void updateCallHunter(App&);
 
 // session/session.cpp
 void updateFeed(App&);
@@ -30,18 +26,11 @@ void drawControls(App&);
 void drawSpectrum(App&, SpectrumView&, DecoderManager&, const char*, bool, bool);
 void drawWaterfall(App&, SpectrumView&, const char*);
 void drawDecoders(App&);
-void drawSUs(App&);
 void drawMessages(App&);
-void drawCChannel(App&);
-void drawNetwork(App&);
-void drawEgc(App&);
-void drawMes(App&);
-void drawLes(App&);
 void drawAircraft(App&);
 void drawFlightMap(App&);
 void drawConstellation(App&);
 void drawVoiceCalls(App&);
-void drawLesFreq(App&);
 void drawAbout(App&);
 
 // state/config.cpp

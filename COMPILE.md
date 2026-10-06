@@ -40,7 +40,6 @@ pacman -S --needed \
   mingw-w64-x86_64-pkgconf \
   mingw-w64-x86_64-glfw \
   mingw-w64-x86_64-rtl-sdr \
-  mingw-w64-x86_64-hackrf \
   mingw-w64-x86_64-libusb \
   mingw-w64-x86_64-zstd \
   mingw-w64-x86_64-libogg \
@@ -51,12 +50,12 @@ pacman -S --needed \
 ```
 
 These provide: GCC/G++, CMake, Ninja, pkg-config, GLFW (windowing), librtlsdr +
-libusb (RTL-SDR), HackRF, and zstd (SDR++ server compression). OpenGL and zlib
+libusb (RTL-SDR) and zstd (compression). OpenGL and zlib
 ship with the toolchain. libogg + libvorbis provide OGG Vorbis voice recording.
 SQLite3 provides the message archive database.  libxml2 is required
 by the ACARS application decoder (CPDLC/ADS-C parsing).
 
-All other dependencies (Dear ImGui, ImPlot, the JAERO DSP, mbelib, libacars,
+All other dependencies (Dear ImGui, ImPlot, libacars,
 miniaudio, WebView2 SDK) are vendored in `third_party/` — the repo is fully
 self-contained. **No `git submodule` commands are needed.**
 
@@ -83,7 +82,7 @@ The executable and the runtime DLLs it needs are placed in `build/`:
 ```
 build/AirScope.exe
 build/libgcc_s_seh-1.dll, libwinpthread-1.dll, libstdc++-6.dll,
-      glfw3.dll, librtlsdr.dll, libhackrf.dll, libusb-1.0.dll,
+      glfw3.dll, librtlsdr.dll, libusb-1.0.dll,
       libzstd.dll, zlib1.dll, libogg-0.dll, libvorbis-0.dll,
       libvorbisenc-2.dll, libsqlite3-0.dll,
       libxml2-16.dll, libiconv-2.dll, liblzma-5.dll,
@@ -148,7 +147,7 @@ On **Debian / Ubuntu**:
 sudo apt-get install -y \
   build-essential cmake ninja-build pkg-config \
   libglfw3-dev libgl1-mesa-dev \
-  librtlsdr-dev libhackrf-dev libusb-1.0-0-dev \
+  librtlsdr-dev libusb-1.0-0-dev \
   libzstd-dev zlib1g-dev \
   libogg-dev libvorbis-dev \
   libsqlite3-dev libxml2-dev libjansson-dev
@@ -159,7 +158,7 @@ On **Arch / Manjaro**:
 ```bash
 sudo pacman -S --needed \
   base-devel cmake ninja pkgconf \
-  glfw rtl-sdr hackrf libusb \
+  glfw rtl-sdr libusb \
   zstd zlib libogg libvorbis \
   sqlite libxml2 jansson
 ```
@@ -170,14 +169,14 @@ On **Fedora**:
 sudo dnf install -y \
   gcc-c++ cmake ninja-build pkgconf-pkg-config \
   glfw-devel mesa-libGL-devel \
-  rtl-sdr-devel hackrf-devel libusb1-devel \
+  rtl-sdr-devel libusb1-devel \
   libzstd-devel zlib-devel \
   libogg-devel libvorbis-devel \
   sqlite-devel libxml2-devel jansson-devel
 ```
 
-As on Windows, all remaining dependencies (Dear ImGui, ImPlot, the JAERO DSP,
-mbelib, libacars, miniaudio) are vendored in `third_party/` — no submodules
+As on Windows, all remaining dependencies (Dear ImGui, ImPlot, libacars,
+miniaudio) are vendored in `third_party/` — no submodules
 needed.
 
 ### Optional: Airspy support
@@ -206,6 +205,6 @@ Run it from the project root (so it finds the bundled font under
   file as on Windows; CMakeLists.txt already caps it at `-O1`.
 - **No Flight Map.** Expected — WebView2 is Windows-only, so the Flight Map tab
   is hidden on Linux. The rest of the app is unaffected.
-- **RTL-SDR / HackRF permissions.** Install the vendors' udev rules (e.g.
+- **RTL-SDR permissions.** Install the vendors' udev rules (e.g.
   `/etc/udev/rules.d/`) or run as a user in the `plugdev` group so the device is
   accessible without root.

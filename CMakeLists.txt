@@ -32,14 +32,6 @@ if(NOT RTLSDR_FOUND)
     find_path(RTLSDR_INCLUDE_DIRS NAMES rtl-sdr.h REQUIRED)
 endif()
 
-# HackRF (native source). The MSYS2 libhackrf.pc has a hardcoded build-machine
-# libusb include path, so locate the header/library directly instead of via
-# pkg-config. hackrf.h itself doesn't pull in libusb, so no extra include is
-# needed for our wrapper.
-find_path(HACKRF_INCLUDE_DIRS NAMES libhackrf/hackrf.h hackrf.h
-          PATH_SUFFIXES libhackrf REQUIRED)
-find_library(HACKRF_LIBRARIES NAMES hackrf libhackrf REQUIRED)
-
 # Airspy (native source, optional).
 # Vendored headers always available; library detection is optional.
 set(AIRSPY_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/third_party/airspy)
@@ -86,44 +78,6 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# JAERO DSP (MSK/OQPSK demodulators + AeroL framing), Qt-stripped, plus the
-# vendored libcorrect FEC. Built as a static lib with a plain C API.
-# ---------------------------------------------------------------------------
-set(JDSP ${CMAKE_SOURCE_DIR}/third_party/jaero_dsp)
-file(GLOB LIBCORRECT_SOURCES
-    ${JDSP}/libcorrect/src/convolutional/*.c
-    ${JDSP}/libcorrect/src/reed-solomon/*.c
-    ${JDSP}/libcorrect/src/fec_shim.c)
-
-add_library(jaero_dsp STATIC
-    ${JDSP}/DSP.cpp
-    ${JDSP}/mskdemodulator.cpp
-    ${JDSP}/oqpskdemodulator.cpp
-    ${JDSP}/burstmskdemodulator.cpp
-    ${JDSP}/burstoqpskdemodulator.cpp
-    ${JDSP}/coarsefreqestimate.cpp
-    ${JDSP}/fftwrapper.cpp
-    ${JDSP}/fftrwrapper.cpp
-    ${JDSP}/jfft.cpp
-    ${JDSP}/jconvolutionalcodec.cpp
-    ${JDSP}/aerol.cpp
-    ${JDSP}/jaero_demod.cpp
-    ${LIBCORRECT_SOURCES}
-)
-target_include_directories(jaero_dsp PUBLIC
-    ${JDSP}
-    ${JDSP}/libcorrect/include
-)
-target_compile_definitions(jaero_dsp PUBLIC _USE_MATH_DEFINES)
-
-# ---------------------------------------------------------------------------
-# mbelib (AMBE/IMBE voice codec, C) for Aero C-channel voice decoding.
-# ---------------------------------------------------------------------------
-file(GLOB MBELIB_SOURCES ${CMAKE_SOURCE_DIR}/third_party/mbelib/*.c)
-add_library(mbelib STATIC ${MBELIB_SOURCES})
-target_include_directories(mbelib PUBLIC ${CMAKE_SOURCE_DIR}/third_party/mbelib)
-
-# ---------------------------------------------------------------------------
 # libacars (vendored): decodes the ACARS application layer (CPDLC, ADS-C,
 # MIAM, media-advisory). Built via its own CMake as the acars_static target.
 # Examples are skipped (LA_BUILD_EXAMPLES off).
@@ -142,13 +96,10 @@ add_executable(AirScope
     src/session/session.cpp
     src/state/config.cpp
     src/sdr/rtl_sdr_source.cpp
-    src/sdr/hackrf_source.cpp
-    src/sdr/rtl_tcp_source.cpp
-    
     src/sdr/wav_file_source.cpp
-    src/sdr/sdrpp_server_source.cpp
     src/sdr/iq_recorder.cpp
     src/gui/waterfall.cpp
+    src/dsp/jfft.cpp
     src/decode/decoder.cpp
     src/decode/decoder_manager.cpp
     src/decode/acars_apps.cpp
@@ -156,8 +107,6 @@ add_executable(AirScope
     src/decode/band_plan.cpp
     src/decode/json_mini.cpp
     src/util/log.cpp
-    src/decode/egc/egc_decoder.cpp
-    src/voice/ambe_decoder.cpp
     src/voice/wav_writer.cpp
     src/audio/audio_output.cpp
     src/audio/audio_player.cpp
@@ -176,11 +125,9 @@ if(WIN32)
 endif()
 target_include_directories(AirScope PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/third_party/mbelib
     ${CMAKE_SOURCE_DIR}/third_party/miniaudio
     ${CMAKE_SOURCE_DIR}/third_party/libacars
     ${RTLSDR_INCLUDE_DIRS}
-    ${HACKRF_INCLUDE_DIRS}
 )
 if(WIN32)
     target_include_directories(AirScope PRIVATE ${WEBVIEW2_ROOT}/include)
@@ -209,7 +156,7 @@ if(NOT OGG_FOUND OR NOT VORBIS_FOUND)
     find_library(VORBISENC_LIBRARIES NAMES vorbisenc libvorbisenc REQUIRED)
 endif()
 
-target_link_libraries(AirScope PRIVATE imgui jaero_dsp mbelib acars_static ${ZLIB_LIB} ${RTLSDR_LIBRARIES} ${HACKRF_LIBRARIES} ${ZSTD_LIBRARIES} ${OGG_LIBRARIES} ${VORBIS_LIBRARIES} ${VORBISENC_LIBRARIES} ${SQLITE3_LIB} ${XML2_LIB} ${JANSSON_LIB})
+target_link_libraries(AirScope PRIVATE imgui acars_static ${ZLIB_LIB} ${RTLSDR_LIBRARIES} ${ZSTD_LIBRARIES} ${OGG_LIBRARIES} ${VORBIS_LIBRARIES} ${VORBISENC_LIBRARIES} ${SQLITE3_LIB} ${XML2_LIB} ${JANSSON_LIB})
 if(WIN32)
     target_link_libraries(AirScope PRIVATE ${WEBVIEW2_LIB})
 endif()
@@ -245,7 +192,6 @@ if(WIN32)
         libstdc++-6.dll
         glfw3.dll
         librtlsdr.dll
-        libhackrf.dll
         libusb-1.0.dll
         libzstd.dll
         zlib1.dll

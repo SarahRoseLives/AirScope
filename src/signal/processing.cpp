@@ -131,7 +131,7 @@ void processFft(SpectrumView& v, App& app, double fc, double fs)
 
 void updateRateChange(App& app)
 {
-    if (!app.active->running() || app.following)
+    if (!app.active->running())
         return;
     double fs = app.active->sampleRate();
     if (fs <= 1.0 || std::fabs(fs - app.lastConfiguredFs) < 1.0)

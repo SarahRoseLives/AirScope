@@ -215,109 +215,20 @@ bool MessageStore::loadAcarsOrSu(const std::string& dbPath, int type,
             m.aesId = (uint32_t)sqlite3_column_int64(stmt, 5);
             m.icao = colText(stmt, 6);
 
-            if (type == ACARS)
+            // data: hex|reg|flight|label|downlink|hasPos|lat|lon|alt|decoded
+            m.hex = field(data, 0);
+            m.reg = field(data, 1);
+            m.flight = field(data, 2);
+            m.label = field(data, 3);
+            m.downlink = (field(data, 4) == "1") ? 1 : 0;
+            m.hasPos = (field(data, 5) == "1");
+            if (m.hasPos)
             {
-                // data: hex|reg|flight|label|downlink|hasPos|lat|lon|alt|decoded
-                m.hex = field(data, 0);
-                m.reg = field(data, 1);
-                m.flight = field(data, 2);
-                m.label = field(data, 3);
-                m.downlink = (field(data, 4) == "1") ? 1 : 0;
-                m.hasPos = (field(data, 5) == "1");
-                if (m.hasPos)
-                {
-                    m.lat = std::atof(field(data, 6).c_str());
-                    m.lon = std::atof(field(data, 7).c_str());
-                    m.alt = std::atoi(field(data, 8).c_str());
-                }
-                m.decoded = field(data, 9);
+                m.lat = std::atof(field(data, 6).c_str());
+                m.lon = std::atof(field(data, 7).c_str());
+                m.alt = std::atoi(field(data, 8).c_str());
             }
-            else // SU
-            {
-                // data: hex|0xNN
-                m.hex = field(data, 0);
-                std::string st = field(data, 1);
-                if (st.size() > 2 && st[0] == '0' && (st[1] == 'x' || st[1] == 'X'))
-                    m.suType = (uint8_t)std::strtoul(st.c_str() + 2, nullptr, 16);
-            }
-            items.push_back(m);
-        }
-    }
-    if (stmt) sqlite3_finalize(stmt);
-    sqlite3_close(rdb);
-
-    log->setArchive(std::move(items));
-    return true;
-}
-
-bool MessageStore::loadEgc(const std::string& dbPath, EgcLog* log)
-{
-    if (!log) return false;
-    sqlite3* rdb = nullptr;
-    if (sqlite3_open_v2(dbPath.c_str(), &rdb, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
-        return false;
-    if (!rdb) return false;
-
-    const char* sql = "SELECT time,freq_mhz,channel,text,data"
-                      " FROM messages WHERE type=?1 ORDER BY time ASC";
-    sqlite3_stmt* stmt = nullptr;
-    std::vector<EgcMessage> items;
-    if (sqlite3_prepare_v2(rdb, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_int(stmt, 1, EGC);
-        while (sqlite3_step(stmt) == SQLITE_ROW)
-        {
-            EgcMessage m;
-            m.freqMHz = sqlite3_column_double(stmt, 1);
-            m.channelId = sqlite3_column_int(stmt, 2);
-            m.text = colText(stmt, 3);
-            std::string data = colText(stmt, 4);
-            // data: timeUtc|priority|msgId|service|presentation
-            m.timeUtc = field(data, 0);
-            m.priority = field(data, 1);
-            m.messageId = std::atoi(field(data, 2).c_str());
-            m.service = field(data, 3);
-            m.presentation = std::atoi(field(data, 4).c_str());
-            items.push_back(m);
-        }
-    }
-    if (stmt) sqlite3_finalize(stmt);
-    sqlite3_close(rdb);
-
-    log->setArchive(std::move(items));
-    return true;
-}
-
-bool MessageStore::loadLes(const std::string& dbPath, LesLog* log)
-{
-    if (!log) return false;
-    sqlite3* rdb = nullptr;
-    if (sqlite3_open_v2(dbPath.c_str(), &rdb, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
-        return false;
-    if (!rdb) return false;
-
-    const char* sql = "SELECT time,freq_mhz,channel,text,data"
-                      " FROM messages WHERE type=?1 ORDER BY time ASC";
-    sqlite3_stmt* stmt = nullptr;
-    std::vector<LesMessage> items;
-    if (sqlite3_prepare_v2(rdb, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_int(stmt, 1, LES);
-        while (sqlite3_step(stmt) == SQLITE_ROW)
-        {
-            LesMessage m;
-            m.freqMHz = sqlite3_column_double(stmt, 1);
-            m.channelId = sqlite3_column_int(stmt, 2);
-            m.text = colText(stmt, 3);
-            std::string data = colText(stmt, 4);
-            // data: timeUtc|satName|lesId|lesLabel|ch|pktNo|encrypted
-            m.timeUtc = field(data, 0);
-            m.satName = field(data, 1);
-            m.lesId = std::atoi(field(data, 2).c_str());
-            m.lesLabel = field(data, 3);
-            m.channel = std::atoi(field(data, 4).c_str());
-            m.pktNo = std::atoi(field(data, 5).c_str());
-            m.isEncrypted = (field(data, 6) == "1");
+            m.decoded = field(data, 9);
             items.push_back(m);
         }
     }
@@ -401,92 +312,6 @@ void MessageStore::storeAcars(double timeSec, int channelId, double freqMHz,
     if (stmt) sqlite3_finalize(stmt);
 }
 
-void MessageStore::storeSu(double timeSec, int channelId, double freqMHz,
-                           const std::string& text, const std::string& hex,
-                           uint32_t aesId, uint8_t suType, int baud)
-{
-    if (!enabled_.load()) return;
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!db_) return;
-    char extra[64];
-    std::snprintf(extra, sizeof(extra), "%s|0x%02X", hex.c_str(), suType);
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "INSERT INTO messages (time,type,freq_mhz,channel,baud,text,data,aes_id)"
-        " VALUES (?1,?2,?3,?4,?5,?6,?7,?8)";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_double(stmt, 1, timeSec);
-        sqlite3_bind_int(stmt, 2, SU);
-        sqlite3_bind_double(stmt, 3, freqMHz);
-        sqlite3_bind_int(stmt, 4, channelId);
-        sqlite3_bind_int(stmt, 5, baud);
-        sqlite3_bind_text(stmt, 6, text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 7, extra, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 8, aesId);
-        sqlite3_step(stmt);
-    }
-    if (stmt) sqlite3_finalize(stmt);
-}
-
-void MessageStore::storeEgc(double timeSec, int channelId, double freqMHz,
-                            const std::string& text, const std::string& timeUtc,
-                            const std::string& priority, int msgId,
-                            const std::string& service, int presentation)
-{
-    if (!enabled_.load()) return;
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!db_) return;
-    char extra[384];
-    std::snprintf(extra, sizeof(extra), "%s|%s|%d|%s|%d",
-                  timeUtc.c_str(), priority.c_str(), msgId, service.c_str(), presentation);
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "INSERT INTO messages (time,type,freq_mhz,channel,text,data)"
-        " VALUES (?1,?2,?3,?4,?5,?6)";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_double(stmt, 1, timeSec);
-        sqlite3_bind_int(stmt, 2, EGC);
-        sqlite3_bind_double(stmt, 3, freqMHz);
-        sqlite3_bind_int(stmt, 4, channelId);
-        sqlite3_bind_text(stmt, 5, text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 6, extra, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-    }
-    if (stmt) sqlite3_finalize(stmt);
-}
-
-void MessageStore::storeLes(double timeSec, int channelId, double freqMHz,
-                            const std::string& text, const std::string& timeUtc,
-                            const std::string& satName, int lesId,
-                            const std::string& lesLabel, int ch, int pktNo,
-                            bool encrypted)
-{
-    if (!enabled_.load()) return;
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!db_) return;
-    char extra[384];
-    std::snprintf(extra, sizeof(extra), "%s|%s|%d|%s|%d|%d|%d",
-                  timeUtc.c_str(), satName.c_str(), lesId, lesLabel.c_str(),
-                  ch, pktNo, encrypted ? 1 : 0);
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "INSERT INTO messages (time,type,freq_mhz,channel,text,data)"
-        " VALUES (?1,?2,?3,?4,?5,?6)";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_double(stmt, 1, timeSec);
-        sqlite3_bind_int(stmt, 2, LES);
-        sqlite3_bind_double(stmt, 3, freqMHz);
-        sqlite3_bind_int(stmt, 4, channelId);
-        sqlite3_bind_text(stmt, 5, text.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 6, extra, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-    }
-    if (stmt) sqlite3_finalize(stmt);
-}
-
 void MessageStore::storeVoice(double timeSec, double freqMHz, uint32_t aesId,
                               const std::string& icao, double durationSec,
                               const std::string& filename)
@@ -513,29 +338,3 @@ void MessageStore::storeVoice(double timeSec, double freqMHz, uint32_t aesId,
     if (stmt) sqlite3_finalize(stmt);
 }
 
-void MessageStore::storeMes(uint32_t mesId, const std::string& action,
-                            const std::string& sat, int les, int channel,
-                            double freqMHz, double nowSec)
-{
-    if (!enabled_.load()) return;
-    std::lock_guard<std::mutex> lk(mtx_);
-    if (!db_) return;
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql =
-        "INSERT OR REPLACE INTO messages (time,type,freq_mhz,channel,aes_id,data)"
-        " VALUES (?1,?2,?3,?4,?5,?6)";
-    char extra[256];
-    std::snprintf(extra, sizeof(extra), "MES|%u|%s|%s|%d",
-                  mesId, action.c_str(), sat.c_str(), les);
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK)
-    {
-        sqlite3_bind_double(stmt, 1, nowSec);
-        sqlite3_bind_int(stmt, 2, MES);
-        sqlite3_bind_double(stmt, 3, freqMHz);
-        sqlite3_bind_int(stmt, 4, channel);
-        sqlite3_bind_int64(stmt, 5, mesId);
-        sqlite3_bind_text(stmt, 6, extra, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-    }
-    if (stmt) sqlite3_finalize(stmt);
-}

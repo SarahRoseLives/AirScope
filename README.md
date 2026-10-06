@@ -18,9 +18,10 @@ decoder). It is being retargeted to the VHF airband and ADS-B:
 Only the voice receiver needs an interactive spectrum/waterfall; ACARS can ride
 along on an Airspy, and the 1090 receiver never moves.
 
-> Status: **early development.** The repository currently contains the
-> inherited InmarScope shell (SDR sources, UI, DDC engine, audio, map, SQLite,
-> web dashboard, SBS feed) renamed to AirScope. The VHF ACARS, AM voice, and
+> Status: **early development.** The inherited InmarScope codebase is being
+> retargeted: the Inmarsat Aero/EGC/AMBE satellite path has been removed,
+> leaving the SDR sources, UI shell, DDC/sub-band engine, audio, recording,
+> map, SQLite, web dashboard and SBS feed. The VHF ACARS, AM voice, and
 > ADS-B paths are being ported in phases.
 
 ## Planned features

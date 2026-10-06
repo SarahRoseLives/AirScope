@@ -265,11 +265,6 @@ int main(int, char**)
     app.decodersB.setMessageStore(&app.writeDb);
     // Cleanup old archive databases.
     app.writeDb.cleanup("databases", app.maxDbAgeDays);
-    {
-        RecordFormat rf = (app.recordFormat == 1) ? RecordFormat::OGG : RecordFormat::WAV;
-        app.decoders.setRecordFormat(rf);
-        app.decodersB.setRecordFormat(rf);
-    }
     app.verCheck.start("airscope", AIRSCOPE_VERSION);
     scanBandPlans(app.bandPlanDir, app.bandPlanNames, app.bandPlanPaths);
     if (app.bandPlanIdx >= 0 && app.bandPlanIdx < (int)app.bandPlanPaths.size())
@@ -308,12 +303,6 @@ int main(int, char**)
             processFft(app.viewB, app, app.sdrB.centerFreq(), app.sdrB.sampleRate());
 
         if (app.active->running())
-            updateVoiceFollow(app);
-
-        if (app.active->running())
-            updateCallHunter(app);
-
-        if (app.active->running())
             updateRateChange(app);
 
         // Log-to-DB toggle: start/stop per-session database.
@@ -325,21 +314,15 @@ int main(int, char**)
                 app.writeDb.setEnabled(false);
         }
 
-        app.decoders.autoMonitor(app.blacklistCountries);
-        if (app.dualMode)
-            app.decodersB.autoMonitor(app.blacklistCountries);
-
-        // Refresh saved decoder list for persistent restart (non-8400 only)
+        // Refresh saved decoder list for persistent restart
         if (app.saveDecoders && app.active->running())
         {
             app.savedDecoders.clear();
             for (auto& st : app.decoders.status())
-                if (st.baud != 8400)
-                    app.savedDecoders.push_back({st.freqMHz, st.baud});
+                app.savedDecoders.push_back({st.freqMHz, st.baud});
             app.savedDecodersB.clear();
             for (auto& st : app.decodersB.status())
-                if (st.baud != 8400)
-                    app.savedDecodersB.push_back({st.freqMHz, st.baud});
+                app.savedDecodersB.push_back({st.freqMHz, st.baud});
         }
 
         updateFeed(app);
@@ -365,16 +348,9 @@ int main(int, char**)
             }
         }
         drawDecoders(app);
-        drawSUs(app);
         drawMessages(app);
-        drawCChannel(app);
-        drawNetwork(app);
-        drawEgc(app);
-        drawMes(app);
-        drawLes(app);
         drawAircraft(app);
         drawVoiceCalls(app);
-        drawLesFreq(app);
         drawFlightMap(app);
         drawConstellation(app);
         drawAbout(app);
@@ -422,8 +398,6 @@ int main(int, char**)
     app.sdr.stop();
     app.sdrB.stop();
     app.wav.stop();
-    app.server.stop();
-    app.hack.stop();
     app.webServer.stop();
 
     app.writeDb.closeCurrent();
