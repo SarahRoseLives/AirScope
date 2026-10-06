@@ -1,0 +1,15 @@
+AGENTS.md
+build/
+dist/
+target/
+out/
+node_modules/
+
+# InmarScope-inherited
+/reference/
+*.o
+*.obj
+*.exe
+*.ini
+*.wav
+imgui.ini

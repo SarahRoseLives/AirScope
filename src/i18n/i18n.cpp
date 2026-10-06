@@ -1,0 +1,704 @@
+#include "i18n/i18n.h"
+
+#include <cstring>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
+namespace {
+
+std::mutex gMtx;
+Lang       gLang = Lang::EN;
+std::unordered_map<std::string, std::string> gMap;
+
+// ---- translation tables (key = English, value = translated) ---------------
+
+using Entry = const char*[2];
+
+Entry kDE[] = { // German
+    {"Control","Steuerung"}, {"Spectrum","Spektrum"}, {"Waterfall","Wasserfall"},
+    {"Decoders","Dekoder"}, {"SUs","SUs"}, {"Messages","Nachrichten"},
+    {"Aircraft","Luftfahrzeuge"}, {"C-Channel","C-Kanal"}, {"Network","Netzwerk"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Konstellation"}, {"Voice Calls","Sprachanrufe"},
+    {"LES Freq","LES-Freq"}, {"Flight Map","Flugkarte"},
+    {"View","Ansicht"}, {"Reset Layout","Layout zurücksetzen"},
+    {"Help","Hilfe"}, {"About","Über"}, {"Languages","Sprachen"},
+    {"Start","Start"}, {"Stop","Stopp"},
+    {"Clear","Löschen"}, {"Remove all","Alle entfernen"},
+    {"Search...","Suchen..."}, {"Live","Live"}, {"Session","Sitzung"},
+    {"Mute","Stumm"}, {"CPU reduce","CPU reduzieren"},
+    {"Show empty","Leere anzeigen"},
+    {"Record voice calls","Sprachanrufe aufzeichnen"},
+    {"Folder","Ordner"},
+    {"Enable CallHunter","CallHunter aktivieren"},
+    {"Threshold (dB above baseline)","Schwelle (dB über Grundlinie)"},
+    {"Confirm frames","Bestätigungsframes"},
+    {"Lost frames","Verlorene Frames"},
+    {"Time","Zeit"},{"Freq","Freq"},{"ICAO","ICAO"},{"Ctry","Land"},
+    {"Reg","Kennz."},{"Flight","Flug"},{"Lat","Br."},{"Lon","Lä."},
+    {"Alt","Höhe"},{"Age","Alter"},{"Msgs","Nachr."},
+    {"Lock","Lock"},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Rtg"},{"AES","AES"},{"Lbl","Kenn."},{"Text","Text"},
+    {"Bytes","Bytes"},
+    {"Priority","Priorität"},{"MsgId","MsgID"},{"Service","Dienst"},
+    {"Message","Nachricht"},
+    {"Sat","Sat."},{"Ch","Kanal"},{"Pkt","Pkt"},
+    {"Duration","Dauer"},{"Play","Absp."},
+    {"About AirScope","Über AirScope"},
+    {"Source","Quelle"},{"Device","Gerät"},
+    {"Sample rate","Abtastrate"},{"Center freq","Mittenfrequenz"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Durchschn. Alpha"},
+    {"Font size","Schriftgröße"},{"Restart to apply","Neustart zum Übernehmen"},
+    {"Log messages to database","Nachrichten in Datenbank protokollieren"},
+    {"Keep DB (days)","DB behalten (Tage)"},
+    {"Hide encrypted","Verschlüsselte ausblenden"},
+    {"With position only","Nur mit Position"},
+    {"Country blacklist","Länder-Blacklist"},
+    {"Add","Hinzufügen"},
+};
+
+Entry kFR[] = { // French
+    {"Control","Contrôle"}, {"Spectrum","Spectre"}, {"Waterfall","Cascade"},
+    {"Decoders","Décodeurs"}, {"SUs","SUs"}, {"Messages","Messages"},
+    {"Aircraft","Aéronefs"}, {"C-Channel","Canal-C"}, {"Network","Réseau"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Constellation"}, {"Voice Calls","Appels vocaux"},
+    {"LES Freq","Fréq. LES"}, {"Flight Map","Carte de vol"},
+    {"View","Affichage"}, {"Reset Layout","Réinit. disposition"},
+    {"Help","Aide"}, {"About","À propos"}, {"Languages","Langues"},
+    {"Start","Démarrer"}, {"Stop","Arrêter"},
+    {"Clear","Effacer"}, {"Remove all","Tout supprimer"},
+    {"Search...","Rechercher..."}, {"Live","Direct"}, {"Session","Session"},
+    {"Mute","Muet"}, {"CPU reduce","Réduire CPU"},
+    {"Show empty","Afficher vides"},
+    {"Record voice calls","Enregistrer appels"},
+    {"Folder","Dossier"},
+    {"Enable CallHunter","Activer CallHunter"},
+    {"Threshold (dB above baseline)","Seuil (dB au-dessus de la base)"},
+    {"Confirm frames","Trames de confirmation"},
+    {"Lost frames","Trames perdues"},
+    {"Time","Heure"},{"Freq","Fréq"},{"ICAO","OACI"},{"Ctry","Pays"},
+    {"Reg","Immat."},{"Flight","Vol"},{"Lat","Lat"},{"Lon","Lon"},
+    {"Alt","Alt"},{"Age","Âge"},{"Msgs","Msgs"},
+    {"Lock","Verrou"},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Sens"},{"AES","AES"},{"Lbl","Étiq."},{"Text","Texte"},
+    {"Bytes","Octets"},
+    {"Priority","Priorité"},{"MsgId","ID msg"},{"Service","Service"},
+    {"Message","Message"},
+    {"Sat","Sat."},{"Ch","Can."},{"Pkt","Paq."},
+    {"Duration","Durée"},{"Play","Lecture"},
+    {"About AirScope","À propos d'AirScope"},
+    {"Source","Source"},{"Device","Appareil"},
+    {"Sample rate","Taux échantillon"},{"Center freq","Fréq. centrale"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Alpha moy."},
+    {"Font size","Taille police"},{"Restart to apply","Redémarrer pour appliquer"},
+    {"Log messages to database","Journaliser les messages dans la base"},
+    {"Keep DB (days)","Garder la base (jours)"},
+    {"Hide encrypted","Masquer chiffrés"},
+    {"With position only","Avec position uniquement"},
+    {"Country blacklist","Liste noire pays"},
+    {"Add","Ajouter"},
+};
+
+Entry kES[] = { // Spanish
+    {"Control","Control"}, {"Spectrum","Espectro"}, {"Waterfall","Cascada"},
+    {"Decoders","Decodificadores"}, {"SUs","SUs"}, {"Messages","Mensajes"},
+    {"Aircraft","Aeronaves"}, {"C-Channel","Canal-C"}, {"Network","Red"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Constelación"}, {"Voice Calls","Llamadas de voz"},
+    {"LES Freq","Frec. LES"}, {"Flight Map","Mapa de vuelo"},
+    {"View","Ver"}, {"Reset Layout","Restablecer diseño"},
+    {"Help","Ayuda"}, {"About","Acerca de"}, {"Languages","Idiomas"},
+    {"Start","Iniciar"}, {"Stop","Detener"},
+    {"Clear","Limpiar"}, {"Remove all","Eliminar todo"},
+    {"Search...","Buscar..."}, {"Live","En vivo"}, {"Session","Sesión"},
+    {"Mute","Silenciar"}, {"CPU reduce","Reducir CPU"},
+    {"Show empty","Mostrar vacíos"},
+    {"Record voice calls","Grabar llamadas"},
+    {"Folder","Carpeta"},
+    {"Enable CallHunter","Activar CallHunter"},
+    {"Threshold (dB above baseline)","Umbral (dB sobre línea base)"},
+    {"Confirm frames","Cuadros de confirmación"},
+    {"Lost frames","Cuadros perdidos"},
+    {"Time","Hora"},{"Freq","Frec"},{"ICAO","OACI"},{"Ctry","País"},
+    {"Reg","Matr."},{"Flight","Vuelo"},{"Lat","Lat"},{"Lon","Lon"},
+    {"Alt","Alt"},{"Age","Edad"},{"Msgs","Msjs"},
+    {"Lock","Bloq."},{"Baud","Baudios"},{"Eb/N0","Eb/N0"},
+    {"Dir","Dir"},{"AES","AES"},{"Lbl","Etq."},{"Text","Texto"},
+    {"Bytes","Bytes"},
+    {"Priority","Prioridad"},{"MsgId","ID mens."},{"Service","Servicio"},
+    {"Message","Mensaje"},
+    {"Sat","Sat."},{"Ch","Can."},{"Pkt","Paq."},
+    {"Duration","Duración"},{"Play","Reprod."},
+    {"About AirScope","Acerca de AirScope"},
+    {"Source","Fuente"},{"Device","Dispositivo"},
+    {"Sample rate","Frec. muestreo"},{"Center freq","Frec. central"},
+    {"dB min","dB mín"},{"dB max","dB máx"},{"Avg alpha","Alpha prom."},
+    {"Font size","Tamaño fuente"},{"Restart to apply","Reiniciar para aplicar"},
+    {"Log messages to database","Registrar mensajes en base de datos"},
+    {"Keep DB (days)","Conservar BD (días)"},
+    {"Hide encrypted","Ocultar cifrados"},
+    {"With position only","Solo con posición"},
+    {"Country blacklist","Lista negra de países"},
+    {"Add","Agregar"},
+};
+
+Entry kRU[] = { // Russian
+    {"Control","Управление"}, {"Spectrum","Спектр"}, {"Waterfall","Водопад"},
+    {"Decoders","Декодеры"}, {"SUs","SU"}, {"Messages","Сообщения"},
+    {"Aircraft","Воздушные суда"}, {"C-Channel","C-канал"}, {"Network","Сеть"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Созвездие"}, {"Voice Calls","Голосовые вызовы"},
+    {"LES Freq","Част. LES"}, {"Flight Map","Карта полётов"},
+    {"View","Вид"}, {"Reset Layout","Сброс макета"},
+    {"Help","Справка"}, {"About","О программе"}, {"Languages","Языки"},
+    {"Start","Пуск"}, {"Stop","Стоп"},
+    {"Clear","Очистить"}, {"Remove all","Удалить всё"},
+    {"Search...","Поиск..."}, {"Live","Прямой"}, {"Session","Сессия"},
+    {"Mute","Без звука"}, {"CPU reduce","Снижение CPU"},
+    {"Show empty","Показывать пустые"},
+    {"Record voice calls","Запись звонков"},
+    {"Folder","Папка"},
+    {"Enable CallHunter","Включить CallHunter"},
+    {"Threshold (dB above baseline)","Порог (дБ над базовым)"},
+    {"Confirm frames","Кадры подтв."},
+    {"Lost frames","Потерянные кадры"},
+    {"Time","Время"},{"Freq","Част."},{"ICAO","ICAO"},{"Ctry","Страна"},
+    {"Reg","Рег."},{"Flight","Рейс"},{"Lat","Шир."},{"Lon","Дол."},
+    {"Alt","Выс."},{"Age","Возр."},{"Msgs","Сообщ."},
+    {"Lock","Захв."},{"Baud","Бод"},{"Eb/N0","Eb/N0"},
+    {"Dir","Напр."},{"AES","AES"},{"Lbl","Метка"},{"Text","Текст"},
+    {"Bytes","Байты"},
+    {"Priority","Приоритет"},{"MsgId","ID соо."},{"Service","Служба"},
+    {"Message","Сообщение"},
+    {"Sat","Спут."},{"Ch","Кан."},{"Pkt","Пак."},
+    {"Duration","Длит."},{"Play","Воспр."},
+    {"About AirScope","О AirScope"},
+    {"Source","Источник"},{"Device","Устройство"},
+    {"Sample rate","Частота дискр."},{"Center freq","Центр. частота"},
+    {"dB min","дБ мин"},{"dB max","дБ макс"},{"Avg alpha","Сред. альфа"},
+    {"Font size","Размер шрифта"},{"Restart to apply","Перезапустите для применения"},
+    {"Log messages to database","Журнал сообщений в БД"},
+    {"Keep DB (days)","Хранить БД (дней)"},
+    {"Hide encrypted","Скрыть шифрованные"},
+    {"With position only","Только с позицией"},
+    {"Country blacklist","Чёрный список стран"},
+    {"Add","Добавить"},
+};
+
+Entry kPT[] = { // Portuguese
+    {"Control","Controle"}, {"Spectrum","Espectro"}, {"Waterfall","Cascata"},
+    {"Decoders","Decodificadores"}, {"SUs","SUs"}, {"Messages","Mensagens"},
+    {"Aircraft","Aeronaves"}, {"C-Channel","Canal-C"}, {"Network","Rede"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Constelação"}, {"Voice Calls","Chamadas de voz"},
+    {"LES Freq","Freq. LES"}, {"Flight Map","Mapa de voo"},
+    {"View","Ver"}, {"Reset Layout","Redefinir layout"},
+    {"Help","Ajuda"}, {"About","Sobre"}, {"Languages","Idiomas"},
+    {"Start","Iniciar"}, {"Stop","Parar"},
+    {"Clear","Limpar"}, {"Remove all","Remover tudo"},
+    {"Search...","Pesquisar..."}, {"Live","Ao vivo"}, {"Session","Sessão"},
+    {"Mute","Mudo"}, {"CPU reduce","Reduzir CPU"},
+    {"Show empty","Mostrar vazios"},
+    {"Record voice calls","Gravar chamadas"},
+    {"Folder","Pasta"},
+    {"Enable CallHunter","Ativar CallHunter"},
+    {"Threshold (dB above baseline)","Limiar (dB acima da base)"},
+    {"Confirm frames","Quadros de confirmação"},
+    {"Lost frames","Quadros perdidos"},
+    {"Time","Hora"},{"Freq","Freq"},{"ICAO","ICAO"},{"Ctry","País"},
+    {"Reg","Matr."},{"Flight","Voo"},{"Lat","Lat"},{"Lon","Lon"},
+    {"Alt","Alt"},{"Age","Idade"},{"Msgs","Msgs"},
+    {"Lock","Trav."},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Dir"},{"AES","AES"},{"Lbl","Rót."},{"Text","Texto"},
+    {"Bytes","Bytes"},
+    {"Priority","Prioridade"},{"MsgId","ID msg"},{"Service","Serviço"},
+    {"Message","Mensagem"},
+    {"Sat","Sat."},{"Ch","Can."},{"Pkt","Pac."},
+    {"Duration","Duração"},{"Play","Repr."},
+    {"About AirScope","Sobre o AirScope"},
+    {"Source","Fonte"},{"Device","Dispositivo"},
+    {"Sample rate","Taxa amostragem"},{"Center freq","Freq. central"},
+    {"dB min","dB mín"},{"dB max","dB máx"},{"Avg alpha","Alpha méd."},
+    {"Font size","Tamanho fonte"},{"Restart to apply","Reinicie para aplicar"},
+    {"Log messages to database","Registrar mensagens no banco"},
+    {"Keep DB (days)","Manter BD (dias)"},
+    {"Hide encrypted","Ocultar criptografados"},
+    {"With position only","Apenas com posição"},
+    {"Country blacklist","Lista negra de países"},
+    {"Add","Adicionar"},
+};
+
+Entry kIT[] = { // Italian
+    {"Control","Controllo"}, {"Spectrum","Spettro"}, {"Waterfall","Cascata"},
+    {"Decoders","Decodificatori"}, {"SUs","SUs"}, {"Messages","Messaggi"},
+    {"Aircraft","Aeromobili"}, {"C-Channel","Canale-C"}, {"Network","Rete"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Costellazione"}, {"Voice Calls","Chiamate vocali"},
+    {"LES Freq","Freq. LES"}, {"Flight Map","Mappa di volo"},
+    {"View","Visualizza"}, {"Reset Layout","Ripristina layout"},
+    {"Help","Aiuto"}, {"About","Informazioni"}, {"Languages","Lingue"},
+    {"Start","Avvia"}, {"Stop","Ferma"},
+    {"Clear","Pulisci"}, {"Remove all","Rimuovi tutto"},
+    {"Search...","Cerca..."}, {"Live","In diretta"}, {"Session","Sessione"},
+    {"Mute","Muto"}, {"CPU reduce","Riduci CPU"},
+    {"Show empty","Mostra vuoti"},
+    {"Record voice calls","Registra chiamate"},
+    {"Folder","Cartella"},
+    {"Enable CallHunter","Abilita CallHunter"},
+    {"Threshold (dB above baseline)","Soglia (dB sopra la base)"},
+    {"Confirm frames","Frame di conferma"},
+    {"Lost frames","Frame persi"},
+    {"Time","Ora"},{"Freq","Freq"},{"ICAO","ICAO"},{"Ctry","Paese"},
+    {"Reg","Immatr."},{"Flight","Volo"},{"Lat","Lat"},{"Lon","Lon"},
+    {"Alt","Alt"},{"Age","Età"},{"Msgs","Msg"},
+    {"Lock","Bloc."},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Dir"},{"AES","AES"},{"Lbl","Etich."},{"Text","Testo"},
+    {"Bytes","Byte"},
+    {"Priority","Priorità"},{"MsgId","ID msg"},{"Service","Servizio"},
+    {"Message","Messaggio"},
+    {"Sat","Sat."},{"Ch","Can."},{"Pkt","Pac."},
+    {"Duration","Durata"},{"Play","Ripr."},
+    {"About AirScope","Informazioni su AirScope"},
+    {"Source","Sorgente"},{"Device","Dispositivo"},
+    {"Sample rate","Freq. campionamento"},{"Center freq","Freq. centrale"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Alfa medio"},
+    {"Font size","Dimensione font"},{"Restart to apply","Riavvia per applicare"},
+    {"Log messages to database","Registra messaggi nel database"},
+    {"Keep DB (days)","Conserva DB (giorni)"},
+    {"Hide encrypted","Nascondi cifrati"},
+    {"With position only","Solo con posizione"},
+    {"Country blacklist","Lista nera paesi"},
+    {"Add","Aggiungi"},
+};
+
+Entry kNL[] = { // Dutch
+    {"Control","Bediening"}, {"Spectrum","Spectrum"}, {"Waterfall","Waterval"},
+    {"Decoders","Decoders"}, {"SUs","SUs"}, {"Messages","Berichten"},
+    {"Aircraft","Vliegtuigen"}, {"C-Channel","C-Kanaal"}, {"Network","Netwerk"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Constellatie"}, {"Voice Calls","Spraakoproepen"},
+    {"LES Freq","LES Freq"}, {"Flight Map","Vluchtkaart"},
+    {"View","Beeld"}, {"Reset Layout","Layout herstellen"},
+    {"Help","Help"}, {"About","Over"}, {"Languages","Talen"},
+    {"Start","Start"}, {"Stop","Stop"},
+    {"Clear","Wissen"}, {"Remove all","Alles verwijderen"},
+    {"Search...","Zoeken..."}, {"Live","Live"}, {"Session","Sessie"},
+    {"Mute","Dempen"}, {"CPU reduce","CPU verlagen"},
+    {"Show empty","Toon lege"},
+    {"Record voice calls","Gesprekken opnemen"},
+    {"Folder","Map"},
+    {"Enable CallHunter","CallHunter inschakelen"},
+    {"Threshold (dB above baseline)","Drempel (dB boven basislijn)"},
+    {"Confirm frames","Bevestigingsframes"},
+    {"Lost frames","Verloren frames"},
+    {"Time","Tijd"},{"Freq","Freq"},{"ICAO","ICAO"},{"Ctry","Land"},
+    {"Reg","Reg."},{"Flight","Vlucht"},{"Lat","Br."},{"Lon","Le."},
+    {"Alt","Hoo."},{"Age","Lft."},{"Msgs","Ber."},
+    {"Lock","Lock"},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Richt."},{"AES","AES"},{"Lbl","Label"},{"Text","Tekst"},
+    {"Bytes","Bytes"},
+    {"Priority","Prioriteit"},{"MsgId","BerID"},{"Service","Dienst"},
+    {"Message","Bericht"},
+    {"Sat","Sat."},{"Ch","Kan."},{"Pkt","Pak."},
+    {"Duration","Duur"},{"Play","Afs."},
+    {"About AirScope","Over AirScope"},
+    {"Source","Bron"},{"Device","Apparaat"},
+    {"Sample rate","Samplefrequentie"},{"Center freq","Middenfrequentie"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Gem. alpha"},
+    {"Font size","Lettergrootte"},{"Restart to apply","Herstarten om toe te passen"},
+    {"Log messages to database","Berichten loggen in database"},
+    {"Keep DB (days)","DB bewaren (dagen)"},
+    {"Hide encrypted","Verberg versleuteld"},
+    {"With position only","Alleen met positie"},
+    {"Country blacklist","Landen zwarte lijst"},
+    {"Add","Toevoegen"},
+};
+
+Entry kJA[] = { // Japanese
+    {"Control","制御"}, {"Spectrum","スペクトラム"}, {"Waterfall","ウォーターフォール"},
+    {"Decoders","デコーダー"}, {"SUs","SU"}, {"Messages","メッセージ"},
+    {"Aircraft","航空機"}, {"C-Channel","Cチャンネル"}, {"Network","ネットワーク"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","コンスタレーション"}, {"Voice Calls","音声通話"},
+    {"LES Freq","LES周波数"}, {"Flight Map","フライトマップ"},
+    {"View","表示"}, {"Reset Layout","レイアウトリセット"},
+    {"Help","ヘルプ"}, {"About","について"}, {"Languages","言語"},
+    {"Start","開始"}, {"Stop","停止"},
+    {"Clear","クリア"}, {"Remove all","すべて削除"},
+    {"Search...","検索..."}, {"Live","ライブ"}, {"Session","セッション"},
+    {"Mute","ミュート"}, {"CPU reduce","CPU削減"},
+    {"Show empty","空を表示"},
+    {"Record voice calls","通話録音"},
+    {"Folder","フォルダ"},
+    {"Enable CallHunter","CallHunter有効"},
+    {"Threshold (dB above baseline)","閾値（ベースライン上dB）"},
+    {"Confirm frames","確認フレーム"},
+    {"Lost frames","損失フレーム"},
+    {"Time","時刻"},{"Freq","周波数"},{"ICAO","ICAO"},{"Ctry","国"},
+    {"Reg","登録"},{"Flight","便名"},{"Lat","緯度"},{"Lon","経度"},
+    {"Alt","高度"},{"Age","経過"},{"Msgs","メッセージ"},
+    {"Lock","ロック"},{"Baud","ボー"},{"Eb/N0","Eb/N0"},
+    {"Dir","方向"},{"AES","AES"},{"Lbl","ラベル"},{"Text","テキスト"},
+    {"Bytes","バイト"},
+    {"Priority","優先度"},{"MsgId","メッセージID"},{"Service","サービス"},
+    {"Message","メッセージ"},
+    {"Sat","衛星"},{"Ch","チャンネル"},{"Pkt","パケット"},
+    {"Duration","長さ"},{"Play","再生"},
+    {"About AirScope","AirScopeについて"},
+    {"Source","ソース"},{"Device","デバイス"},
+    {"Sample rate","サンプルレート"},{"Center freq","中心周波数"},
+    {"dB min","dB最小"},{"dB max","dB最大"},{"Avg alpha","平均アルファ"},
+    {"Font size","フォントサイズ"},{"Restart to apply","再起動して適用"},
+    {"Log messages to database","メッセージをDBに記録"},
+    {"Keep DB (days)","DB保持（日）"},
+    {"Hide encrypted","暗号化を隠す"},
+    {"With position only","位置情報のみ"},
+    {"Country blacklist","国ブラックリスト"},
+    {"Add","追加"},
+};
+
+Entry kZH[] = { // Chinese Simplified
+    {"Control","控制"}, {"Spectrum","频谱"}, {"Waterfall","瀑布"},
+    {"Decoders","解码器"}, {"SUs","SU"}, {"Messages","消息"},
+    {"Aircraft","飞机"}, {"C-Channel","C频道"}, {"Network","网络"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","星座图"}, {"Voice Calls","语音通话"},
+    {"LES Freq","LES频率"}, {"Flight Map","飞行地图"},
+    {"View","视图"}, {"Reset Layout","重置布局"},
+    {"Help","帮助"}, {"About","关于"}, {"Languages","语言"},
+    {"Start","开始"}, {"Stop","停止"},
+    {"Clear","清除"}, {"Remove all","全部删除"},
+    {"Search...","搜索..."}, {"Live","实时"}, {"Session","会话"},
+    {"Mute","静音"}, {"CPU reduce","降低CPU"},
+    {"Show empty","显示空"},
+    {"Record voice calls","录制通话"},
+    {"Folder","文件夹"},
+    {"Enable CallHunter","启用CallHunter"},
+    {"Threshold (dB above baseline)","阈值（高于基线dB）"},
+    {"Confirm frames","确认帧"},
+    {"Lost frames","丢失帧"},
+    {"Time","时间"},{"Freq","频率"},{"ICAO","ICAO"},{"Ctry","国家"},
+    {"Reg","注册号"},{"Flight","航班"},{"Lat","纬度"},{"Lon","经度"},
+    {"Alt","高度"},{"Age","时长"},{"Msgs","消息"},
+    {"Lock","锁定"},{"Baud","波特"},{"Eb/N0","Eb/N0"},
+    {"Dir","方向"},{"AES","AES"},{"Lbl","标签"},{"Text","文本"},
+    {"Bytes","字节"},
+    {"Priority","优先级"},{"MsgId","消息ID"},{"Service","服务"},
+    {"Message","消息"},
+    {"Sat","卫星"},{"Ch","频道"},{"Pkt","包"},
+    {"Duration","时长"},{"Play","播放"},
+    {"About AirScope","关于AirScope"},
+    {"Source","源"},{"Device","设备"},
+    {"Sample rate","采样率"},{"Center freq","中心频率"},
+    {"dB min","dB最小"},{"dB max","dB最大"},{"Avg alpha","平均alpha"},
+    {"Font size","字体大小"},{"Restart to apply","重启以应用"},
+  {"Log messages to database","将消息记录到数据库"},
+    {"Keep DB (days)","保留数据库（天）"},
+    {"Hide encrypted","隐藏加密"},
+    {"With position only","仅显示有位置"},
+    {"Country blacklist","国家黑名单"},
+    {"Add","添加"},
+};
+
+Entry kKO[] = { // Korean
+    {"Control","제어"}, {"Spectrum","스펙트럼"}, {"Waterfall","워터폴"},
+    {"Decoders","디코더"}, {"SUs","SU"}, {"Messages","메시지"},
+    {"Aircraft","항공기"}, {"C-Channel","C채널"}, {"Network","네트워크"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","컨스텔레이션"}, {"Voice Calls","음성 통화"},
+    {"LES Freq","LES 주파수"}, {"Flight Map","비행 지도"},
+    {"View","보기"}, {"Reset Layout","레이아웃 초기화"},
+    {"Help","도움말"}, {"About","정보"}, {"Languages","언어"},
+    {"Start","시작"}, {"Stop","정지"},
+    {"Clear","지우기"}, {"Remove all","모두 제거"},
+    {"Search...","검색..."}, {"Live","실시간"}, {"Session","세션"},
+    {"Mute","음소거"}, {"CPU reduce","CPU 절감"},
+    {"Show empty","빈 항목 표시"},
+    {"Record voice calls","통화 녹음"},
+    {"Folder","폴더"},
+    {"Enable CallHunter","CallHunter 활성화"},
+    {"Threshold (dB above baseline)","임계값 (기준선 위 dB)"},
+    {"Confirm frames","확인 프레임"},
+    {"Lost frames","손실 프레임"},
+    {"Time","시간"},{"Freq","주파수"},{"ICAO","ICAO"},{"Ctry","국가"},
+    {"Reg","등록"},{"Flight","편명"},{"Lat","위도"},{"Lon","경도"},
+    {"Alt","고도"},{"Age","경과"},{"Msgs","메시지"},
+    {"Lock","잠금"},{"Baud","보"},{"Eb/N0","Eb/N0"},
+    {"Dir","방향"},{"AES","AES"},{"Lbl","라벨"},{"Text","텍스트"},
+    {"Bytes","바이트"},
+    {"Priority","우선순위"},{"MsgId","메시지ID"},{"Service","서비스"},
+    {"Message","메시지"},
+    {"Sat","위성"},{"Ch","채널"},{"Pkt","패킷"},
+    {"Duration","길이"},{"Play","재생"},
+    {"About AirScope","AirScope 정보"},
+    {"Source","소스"},{"Device","장치"},
+    {"Sample rate","샘플 레이트"},{"Center freq","중심 주파수"},
+    {"dB min","dB 최소"},{"dB max","dB 최대"},{"Avg alpha","평균 알파"},
+    {"Font size","글꼴 크기"},{"Restart to apply","적용하려면 다시 시작"},
+    {"Log messages to database","메시지를 DB에 기록"},
+    {"Keep DB (days)","DB 보관 (일)"},
+    {"Hide encrypted","암호화 숨기기"},
+    {"With position only","위치 정보만"},
+    {"Country blacklist","국가 블랙리스트"},
+    {"Add","추가"},
+};
+
+Entry kPL[] = { // Polish
+    {"Control","Sterowanie"}, {"Spectrum","Spektrum"}, {"Waterfall","Wodospad"},
+    {"Decoders","Dekodery"}, {"SUs","SU"}, {"Messages","Wiadomości"},
+    {"Aircraft","Statki powietrzne"}, {"C-Channel","Kanał C"}, {"Network","Sieć"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Konstelacja"}, {"Voice Calls","Rozmowy głosowe"},
+    {"LES Freq","Częst. LES"}, {"Flight Map","Mapa lotów"},
+    {"View","Widok"}, {"Reset Layout","Reset układu"},
+    {"Help","Pomoc"}, {"About","O programie"}, {"Languages","Języki"},
+    {"Start","Start"}, {"Stop","Stop"},
+    {"Clear","Wyczyść"}, {"Remove all","Usuń wszystko"},
+    {"Search...","Szukaj..."}, {"Live","Na żywo"}, {"Session","Sesja"},
+    {"Mute","Wycisz"}, {"CPU reduce","Zmniejsz CPU"},
+    {"Show empty","Pokaż puste"},
+    {"Record voice calls","Nagrywaj rozmowy"},
+    {"Folder","Folder"},
+    {"Enable CallHunter","Włącz CallHunter"},
+    {"Threshold (dB above baseline)","Próg (dB powyżej linii bazowej)"},
+    {"Confirm frames","Ramki potwierdzenia"},
+    {"Lost frames","Utracone ramki"},
+    {"Time","Czas"},{"Freq","Częst."},{"ICAO","ICAO"},{"Ctry","Kraj"},
+    {"Reg","Rej."},{"Flight","Lot"},{"Lat","Szer."},{"Lon","Dł."},
+    {"Alt","Wys."},{"Age","Wiek"},{"Msgs","Wiad."},
+    {"Lock","Blok."},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Kier."},{"AES","AES"},{"Lbl","Etyk."},{"Text","Tekst"},
+    {"Bytes","Bajty"},
+    {"Priority","Priorytet"},{"MsgId","ID wiad."},{"Service","Usługa"},
+    {"Message","Wiadomość"},
+    {"Sat","Sat."},{"Ch","Kan."},{"Pkt","Pak."},
+    {"Duration","Czas trwania"},{"Play","Odtw."},
+    {"About AirScope","O AirScope"},
+    {"Source","Źródło"},{"Device","Urządzenie"},
+    {"Sample rate","Częst. próbkowania"},{"Center freq","Częst. środkowa"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Śr. alfa"},
+    {"Font size","Rozmiar czcionki"},{"Restart to apply","Uruchom ponownie, aby zastosować"},
+    {"Log messages to database","Zapisuj wiadomości do bazy"},
+    {"Keep DB (days)","Zachowaj BD (dni)"},
+    {"Hide encrypted","Ukryj zaszyfrowane"},
+    {"With position only","Tylko z pozycją"},
+    {"Country blacklist","Czarna lista krajów"},
+    {"Add","Dodaj"},
+};
+
+Entry kSV[] = { // Swedish
+    {"Control","Kontroll"}, {"Spectrum","Spektrum"}, {"Waterfall","Vattenfall"},
+    {"Decoders","Avkodare"}, {"SUs","SU"}, {"Messages","Meddelanden"},
+    {"Aircraft","Luftfartyg"}, {"C-Channel","C-Kanal"}, {"Network","Nätverk"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Konstellation"}, {"Voice Calls","Röstsamtal"},
+    {"LES Freq","LES Frekv."},{"Flight Map","Flygkarta"},
+    {"View","Visa"}, {"Reset Layout","Återställ layout"},
+    {"Help","Hjälp"}, {"About","Om"}, {"Languages","Språk"},
+    {"Start","Start"}, {"Stop","Stopp"},
+    {"Clear","Rensa"}, {"Remove all","Ta bort alla"},
+    {"Search...","Sök..."}, {"Live","Live"}, {"Session","Session"},
+    {"Mute","Tyst"}, {"CPU reduce","Minska CPU"},
+    {"Show empty","Visa tomma"},
+    {"Record voice calls","Spela in samtal"},
+    {"Folder","Mapp"},
+    {"Enable CallHunter","Aktivera CallHunter"},
+    {"Threshold (dB above baseline)","Tröskel (dB över baslinje)"},
+    {"Confirm frames","Bekräftelseramar"},
+    {"Lost frames","Förlorade ramar"},
+    {"Time","Tid"},{"Freq","Frekv"},{"ICAO","ICAO"},{"Ctry","Land"},
+    {"Reg","Reg."},{"Flight","Flyg"},{"Lat","Lat"},{"Lon","Lon"},
+    {"Alt","Höjd"},{"Age","Ålder"},{"Msgs","Medd."},
+    {"Lock","Lås"},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Riktn."},{"AES","AES"},{"Lbl","Etik."},{"Text","Text"},
+    {"Bytes","Byte"},
+    {"Priority","Prioritet"},{"MsgId","MeddID"},{"Service","Tjänst"},
+    {"Message","Meddelande"},
+    {"Sat","Sat."},{"Ch","Kan."},{"Pkt","Pak."},
+    {"Duration","Längd"},{"Play","Spela"},
+    {"About AirScope","Om AirScope"},
+    {"Source","Källa"},{"Device","Enhet"},
+    {"Sample rate","Samplingsfrekvens"},{"Center freq","Centerfrekvens"},
+    {"dB min","dB min"},{"dB max","dB max"},{"Avg alpha","Snitt alfa"},
+    {"Font size","Teckenstorlek"},{"Restart to apply","Starta om för att tillämpa"},
+    {"Log messages to database","Logga meddelanden till databas"},
+    {"Keep DB (days)","Behåll DB (dagar)"},
+    {"Hide encrypted","Dölj krypterade"},
+    {"With position only","Endast med position"},
+    {"Country blacklist","Länders svartlista"},
+    {"Add","Lägg till"},
+};
+
+Entry kTR[] = { // Turkish
+    {"Control","Kontrol"}, {"Spectrum","Spektrum"}, {"Waterfall","Şelale"},
+    {"Decoders","Kod çözücüler"}, {"SUs","SU"}, {"Messages","Mesajlar"},
+    {"Aircraft","Hava araçları"}, {"C-Channel","C-Kanalı"}, {"Network","Ağ"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","Takımyıldız"}, {"Voice Calls","Sesli aramalar"},
+    {"LES Freq","LES Frek."},{"Flight Map","Uçuş haritası"},
+    {"View","Görünüm"}, {"Reset Layout","Düzeni sıfırla"},
+    {"Help","Yardım"}, {"About","Hakkında"}, {"Languages","Diller"},
+    {"Start","Başlat"}, {"Stop","Durdur"},
+    {"Clear","Temizle"}, {"Remove all","Tümünü kaldır"},
+    {"Search...","Ara..."}, {"Live","Canlı"}, {"Session","Oturum"},
+    {"Mute","Sessiz"}, {"CPU reduce","CPU azalt"},
+    {"Show empty","Boşları göster"},
+    {"Record voice calls","Aramaları kaydet"},
+    {"Folder","Klasör"},
+    {"Enable CallHunter","CallHunter'ı etkinleştir"},
+    {"Threshold (dB above baseline)","Eşik (taban çizgisinin dB üstü)"},
+    {"Confirm frames","Onay çerçeveleri"},
+    {"Lost frames","Kayıp çerçeveler"},
+    {"Time","Zaman"},{"Freq","Frek."},{"ICAO","ICAO"},{"Ctry","Ülke"},
+    {"Reg","Tescil"},{"Flight","Uçuş"},{"Lat","Enl."},{"Lon","Boy."},
+    {"Alt","Yük."},{"Age","Yaş"},{"Msgs","Mesaj"},
+    {"Lock","Kilit"},{"Baud","Baud"},{"Eb/N0","Eb/N0"},
+    {"Dir","Yön"},{"AES","AES"},{"Lbl","Etik."},{"Text","Metin"},
+    {"Bytes","Bayt"},
+    {"Priority","Öncelik"},{"MsgId","MesajID"},{"Service","Hizmet"},
+    {"Message","Mesaj"},
+    {"Sat","Uydu"},{"Ch","Kan."},{"Pkt","Pak."},
+    {"Duration","Süre"},{"Play","Oynat"},
+    {"About AirScope","AirScope Hakkında"},
+    {"Source","Kaynak"},{"Device","Cihaz"},
+    {"Sample rate","Örnekleme hızı"},{"Center freq","Merkez frek."},
+    {"dB min","dB min"},{"dB max","dB maks"},{"Avg alpha","Ort. alfa"},
+    {"Font size","Yazı boyutu"},{"Restart to apply","Uygulamak için yeniden başlat"},
+    {"Log messages to database","Mesajları veritabanına kaydet"},
+    {"Keep DB (days)","VT'yi sakla (gün)"},
+    {"Hide encrypted","Şifrelileri gizle"},
+    {"With position only","Sadece konumlu"},
+    {"Country blacklist","Ülke kara listesi"},
+    {"Add","Ekle"},
+};
+
+Entry kAR[] = { // Arabic
+    {"Control","تحكم"}, {"Spectrum","طيف"}, {"Waterfall","شلال"},
+    {"Decoders","مفككات"}, {"SUs","SU"}, {"Messages","رسائل"},
+    {"Aircraft","طائرات"}, {"C-Channel","قناة-C"}, {"Network","شبكة"},
+    {"EGC","EGC"}, {"MES","MES"}, {"LES","LES"},
+    {"Constellation","كوكبة"}, {"Voice Calls","مكالمات صوتية"},
+    {"LES Freq","تردد LES"}, {"Flight Map","خريطة الطيران"},
+    {"View","عرض"}, {"Reset Layout","إعادة تعيين التخطيط"},
+    {"Help","مساعدة"}, {"About","حول"}, {"Languages","اللغات"},
+    {"Start","بدء"}, {"Stop","إيقاف"},
+    {"Clear","مسح"}, {"Remove all","إزالة الكل"},
+    {"Search...","بحث..."}, {"Live","مباشر"}, {"Session","جلسة"},
+    {"Mute","كتم"}, {"CPU reduce","تقليل CPU"},
+    {"Show empty","إظهار الفارغة"},
+    {"Record voice calls","تسجيل المكالمات"},
+    {"Folder","مجلد"},
+    {"Enable CallHunter","تفعيل CallHunter"},
+    {"Threshold (dB above baseline)","العتبة (ديسيبل فوق خط الأساس)"},
+    {"Confirm frames","إطارات التأكيد"},
+    {"Lost frames","الإطارات المفقودة"},
+    {"Time","وقت"},{"Freq","تردد"},{"ICAO","ICAO"},{"Ctry","دولة"},
+    {"Reg","تسجيل"},{"Flight","رحلة"},{"Lat","عرض"},{"Lon","طول"},
+    {"Alt","ارتفاع"},{"Age","عمر"},{"Msgs","رسائل"},
+    {"Lock","قفل"},{"Baud","باود"},{"Eb/N0","Eb/N0"},
+    {"Dir","اتجاه"},{"AES","AES"},{"Lbl","وسم"},{"Text","نص"},
+    {"Bytes","بايت"},
+    {"Priority","أولوية"},{"MsgId","معرف الرسالة"},{"Service","خدمة"},
+    {"Message","رسالة"},
+    {"Sat","قمر"},{"Ch","قناة"},{"Pkt","حزمة"},
+    {"Duration","مدة"},{"Play","تشغيل"},
+    {"About AirScope","حول AirScope"},
+    {"Source","مصدر"},{"Device","جهاز"},
+    {"Sample rate","معدل العينة"},{"Center freq","التردد المركزي"},
+    {"dB min","ديسيبل أدنى"},{"dB max","ديسيبل أقصى"},{"Avg alpha","متوسط ألفا"},
+    {"Font size","حجم الخط"},{"Restart to apply","أعد التشغيل للتطبيق"},
+    {"Log messages to database","تسجيل الرسائل في قاعدة البيانات"},
+    {"Keep DB (days)","الاحتفاظ بقاعدة البيانات (أيام)"},
+    {"Hide encrypted","إخفاء المشفرة"},
+    {"With position only","مع الموقع فقط"},
+    {"Country blacklist","القائمة السوداء للدول"},
+    {"Add","إضافة"},
+};
+
+// ---- helpers ---------------------------------------------------------------
+
+void loadTable(Entry* tab, size_t count)
+{
+    for (size_t i = 0; i < count; ++i)
+        gMap[tab[i][0]] = tab[i][1];
+}
+
+} // namespace
+
+// ---- public API -----------------------------------------------------------
+
+void i18nInit()
+{
+    i18nSet(Lang::EN);
+}
+
+void i18nSet(Lang lang)
+{
+    std::lock_guard<std::mutex> lk(gMtx);
+    gLang = lang;
+    gMap.clear();
+
+    // English is the fallback — don't populate entries for it.
+    if (lang == Lang::EN)
+        return;
+
+    switch (lang)
+    {
+    case Lang::DE: loadTable(kDE, sizeof(kDE)/sizeof(kDE[0])); break;
+    case Lang::FR: loadTable(kFR, sizeof(kFR)/sizeof(kFR[0])); break;
+    case Lang::ES: loadTable(kES, sizeof(kES)/sizeof(kES[0])); break;
+    case Lang::RU: loadTable(kRU, sizeof(kRU)/sizeof(kRU[0])); break;
+    case Lang::PT: loadTable(kPT, sizeof(kPT)/sizeof(kPT[0])); break;
+    case Lang::IT: loadTable(kIT, sizeof(kIT)/sizeof(kIT[0])); break;
+    case Lang::NL: loadTable(kNL, sizeof(kNL)/sizeof(kNL[0])); break;
+    case Lang::JA: loadTable(kJA, sizeof(kJA)/sizeof(kJA[0])); break;
+    case Lang::ZH: loadTable(kZH, sizeof(kZH)/sizeof(kZH[0])); break;
+    case Lang::KO: loadTable(kKO, sizeof(kKO)/sizeof(kKO[0])); break;
+    case Lang::PL: loadTable(kPL, sizeof(kPL)/sizeof(kPL[0])); break;
+    case Lang::SV: loadTable(kSV, sizeof(kSV)/sizeof(kSV[0])); break;
+    case Lang::TR: loadTable(kTR, sizeof(kTR)/sizeof(kTR[0])); break;
+    case Lang::AR: loadTable(kAR, sizeof(kAR)/sizeof(kAR[0])); break;
+    default: break;
+    }
+}
+
+Lang i18nGet()
+{
+    return gLang;
+}
+
+const char* i18nName(Lang lang)
+{
+    switch (lang)
+    {
+    case Lang::EN: return "English";
+    case Lang::DE: return "Deutsch";
+    case Lang::FR: return "Fran\xc3\xa7" "ais";
+    case Lang::ES: return "Espa\xc3\xb1" "ol";
+    case Lang::RU: return "\xd0\xa0\xd1\x83\xd1\x81\xd1\x81\xd0\xba\xd0\xb8\xd0\xb9"; // Русский
+    case Lang::PT: return "Portugu\xc3\xaa" "s";
+    case Lang::IT: return "Italiano";
+    case Lang::NL: return "Nederlands";
+    case Lang::JA: return "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"; // 日本語
+    case Lang::ZH: return "\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87"; // 简体中文
+    case Lang::KO: return "\xed\x95\x9c\xea\xb5\xad\xec\x96\xb4"; // 한국어
+    case Lang::PL: return "Polski";
+    case Lang::SV: return "Svenska";
+    case Lang::TR: return "T\xc3\xbcrk\xc3\xa7" "e";
+    case Lang::AR: return "\xd8\xa7\xd9\x84\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a\xd8\xa9"; // العربية
+    default: return "???";
+    }
+}
+
+const char* _L(const char* en)
+{
+    Lang cur = gLang;
+    if (cur == Lang::EN || !en)
+        return en;
+    auto it = gMap.find(en);
+    if (it != gMap.end())
+        return it->second.c_str();
+    return en;
+}
