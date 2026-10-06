@@ -289,12 +289,16 @@ static int messageScore(const uint8_t* msg, int bits)
 
     uint8_t df = msg[0] >> 3;
     bool validDF = false;
+    // This is an ADS-B decoder: only the extended squitters (DF17/18) carry an
+    // ADS-B payload with a pure CRC. DF11 all-call replies are kept for
+    // aircraft presence. The other DFs overlay the ICAO/interrogator on the
+    // parity, so they cannot be validated without a full ICAO seen-filter.
     switch (df)
     {
-    case 0: case 4: case 5: case 11:
+    case 11:
         if (bits == kShortMsgBits) validDF = true;
         break;
-    case 16: case 17: case 18: case 20: case 21: case 22: case 24:
+    case 17: case 18:
         if (bits == kLongMsgBits) validDF = true;
         break;
     }
@@ -681,7 +685,9 @@ void decode(const RawMessage& raw, Decoded& out)
             out.squawk = (uint16_t)((((uint16_t)msg[4] & 0x7F) << 6) | ((uint16_t)msg[5] >> 2));
         std::memcpy(out.raw, msg, kLongMsgBytes);
         out.rawBytes = nbytes;
-        out.crc = true; // short frames validated by DF only
+        out.crc = true; // short frames validated by DF + ICAO only
+        if (out.icao == 0)
+            out.crc = false; // all-zero / field-less phantom
         return;
     }
 
@@ -721,6 +727,8 @@ void decode(const RawMessage& raw, Decoded& out)
         if (corrected && (out.meType == 0 || out.meType > 22))
             out.crc = false;
     }
+    if (out.icao == 0)
+        out.crc = false; // all-zero / field-less phantom
 
     std::memcpy(out.raw, msg, kLongMsgBytes);
     out.rawBytes = nbytes;

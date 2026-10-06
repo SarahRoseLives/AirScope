@@ -65,6 +65,7 @@ void setFixBits(int fixBits);
 
 // Set the 256x256 magnitude lookup table (always available; built by init()).
 void buildMagLut();
+
 extern uint16_t g_magLut[256][256];
 
 // Scan magnitude samples for Mode S frames. `mag` must contain at least
