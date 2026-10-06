@@ -44,9 +44,14 @@ void IqRecorder::configurePrebuffer(double sampleRate, double bufferSec)
 
 void IqRecorder::prebuffer(const float* iq, int nComplex)
 {
-    if (ringCap_ == 0 || nComplex <= 0)
+    if (nComplex <= 0)
         return;
+    // ringCap_ may be zeroed concurrently by configurePrebuffer() (e.g. when a
+    // source is reconfigured to a rate > 3 Msps), so the check must happen
+    // under the same lock as the ring access to avoid a divide-by-zero.
     std::lock_guard<std::mutex> lk(ringMtx_);
+    if (ringCap_ == 0)
+        return;
     for (int i = 0; i < nComplex; ++i)
     {
         size_t w = (ringWrite_ % ringCap_) * 2;

@@ -216,7 +216,7 @@ int main(int, char**)
             rp->adsb->setFixBits(app.adsbFixBits);
             rp->adsb->setPhaseEnhance(app.adsbPhaseEnhance);
         }
-        rp->devices = rp->src ? rp->src->listDevices() : std::vector<SdrDeviceInfo>{};
+        rp->scanDevices(); // background: never block startup on device enumeration
     }
 
     if (app.outBeast)

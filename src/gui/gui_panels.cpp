@@ -66,7 +66,7 @@ static void refreshDevices(Receiver& r)
 {
     if (!r.src)
         r.src = makeSdrSource(r.mode);
-    r.devices = r.src ? r.src->listDevices() : std::vector<SdrDeviceInfo>{};
+    r.scanDevices(); // async: task runs off the UI thread
 }
 
 static void drawDeviceCombo(Receiver& r)
@@ -75,19 +75,29 @@ static void drawDeviceCombo(Receiver& r)
     if (ImGui::SmallButton("Refresh##dev"))
         refreshDevices(r);
     ImGui::SameLine();
-    ImGui::Text("(%d)", (int)r.devices.size());
-    if (r.devices.empty())
+    if (!r.devicesReady.load())
+    {
+        ImGui::TextDisabled("scanning...");
         return;
-    if (r.deviceIndex >= (int)r.devices.size())
+    }
+    std::vector<SdrDeviceInfo> devs;
+    {
+        std::lock_guard<std::mutex> lk(r.devMtx);
+        devs = r.devices;
+    }
+    ImGui::Text("(%d)", (int)devs.size());
+    if (devs.empty())
+        return;
+    if (r.deviceIndex >= (int)devs.size())
         r.deviceIndex = 0;
-    std::string preview = r.devices[r.deviceIndex].name;
+    std::string preview = devs[r.deviceIndex].name;
     if (ImGui::BeginCombo("Device", preview.c_str()))
     {
-        for (int i = 0; i < (int)r.devices.size(); ++i)
+        for (int i = 0; i < (int)devs.size(); ++i)
         {
             bool sel = (r.deviceIndex == i);
-            std::string label = std::to_string(i) + ": " + r.devices[i].name +
-                                " [" + r.devices[i].serial + "]";
+            std::string label = std::to_string(i) + ": " + devs[i].name +
+                                " [" + devs[i].serial + "]";
             if (ImGui::Selectable(label.c_str(), sel))
                 r.deviceIndex = i;
         }
@@ -133,7 +143,6 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
         };
         r.mode = map[std::clamp(modeSel, 0, nm - 1)];
         r.src = makeSdrSource(r.mode);
-        r.devices.clear();
         refreshDevices(r);
     }
     ImGui::EndDisabled();

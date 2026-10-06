@@ -9,6 +9,39 @@
 #include "sdr/sdrplay_source.h"
 #endif
 
+#include <utility>
+
+Receiver::~Receiver()
+{
+    if (devThread.joinable())
+        devThread.join();
+}
+
+void Receiver::scanDevices()
+{
+    // If a scan is already running, don't block the caller (device enumeration
+    // can take tens of seconds); just let the in-flight one finish.
+    bool expected = false;
+    if (!devicesScanning.compare_exchange_strong(expected, true))
+        return;
+
+    if (devThread.joinable())
+        devThread.join(); // previous scan has finished; returns immediately
+
+    devicesReady.store(false);
+    Receiver* self = this;
+    devThread = std::thread([self]() {
+        std::vector<SdrDeviceInfo> list =
+            self->src ? self->src->listDevices() : std::vector<SdrDeviceInfo>{};
+        {
+            std::lock_guard<std::mutex> lk(self->devMtx);
+            self->devices = std::move(list);
+        }
+        self->devicesReady.store(true);
+        self->devicesScanning.store(false);
+    });
+}
+
 std::unique_ptr<SdrSource> makeSdrSource(int mode)
 {
     switch (mode)

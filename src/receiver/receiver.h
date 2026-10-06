@@ -17,7 +17,9 @@
 #include <complex>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -70,6 +72,11 @@ const char* rxModeName(int mode);
 
 struct Receiver
 {
+    Receiver() = default;
+    ~Receiver();
+    Receiver(const Receiver&) = delete;
+    Receiver& operator=(const Receiver&) = delete;
+
     int mode = kRxRtl;
     std::unique_ptr<SdrSource> src;
 
@@ -118,6 +125,13 @@ struct Receiver
     // ---- runtime ----
     std::string status;
     std::vector<SdrDeviceInfo> devices;
+    // Device enumeration can be slow (the SDRplay API open can block for tens
+    // of seconds), so it runs on a background thread; guard with devMtx.
+    std::mutex devMtx;
+    std::atomic<bool> devicesReady{false};
+    std::atomic<bool> devicesScanning{false};
+    std::thread devThread;
+    void scanDevices(); // kick an async refresh of `devices`
     std::vector<std::pair<double,int>> savedDecoders; // freqMHz, baud
     uint64_t lastFeedCount = 0;
     double   lastConfiguredFs = 0.0;
