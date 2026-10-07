@@ -141,6 +141,9 @@ int main(int, char**)
     io.IniFilename = "airscope.ini";
     ImGui::LoadIniSettingsFromDisk(io.IniFilename);
 
+    // The voice scanner always starts off; the user enables it explicitly.
+    app.callHunterMode = false;
+
     // The ADS-B role only works at 1090 MHz / 2.4 MS/s, so pin those after the
     // saved config is loaded (the user still picks the SDR and gain).
     for (auto& rp : app.rx)

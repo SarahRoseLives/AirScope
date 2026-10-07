@@ -13,6 +13,10 @@ Any role can use an **RTL-SDR**, **Airspy**, **SDRplay** (RSP1A/RSP2/RSPduo/
 RSPdx), or a **WAV** file. Roles you don't need (2 and 3) can be set to
 **Disabled**.
 
+> **Official Windows builds are published at
+> [sarahsforge.dev/products/airscope](https://sarahsforge.dev/products/airscope)
+> — that is the only place to get them.**
+
 Built in C++17 with Dear ImGui / ImPlot and OpenGL. AirScope started life as
 InmarScope (an Inmarsat decoder); the satellite path has been removed and the
 code retargeted to the airband and ADS-B.

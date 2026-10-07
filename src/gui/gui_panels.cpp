@@ -1500,6 +1500,9 @@ void drawAbout(App& app)
 void drawDockHost(App& app)
 {
     static bool forceLayout = false;
+    // The Waterfall must be the active tab every time the app opens, including
+    // when a saved layout restores the previously selected tab.
+    static bool selectWaterfallTab = true;
     if (app.forceDefaultLayout) { forceLayout = true; app.forceDefaultLayout = false; }
 
     ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -1538,6 +1541,9 @@ void drawDockHost(App& app)
         ImGui::DockBuilderDockWindow((std::string(_L("Control")) + "###Control").c_str(), ctrl);
         ImGui::DockBuilderDockWindow((std::string(_L("Decoders")) + "###Decoders").c_str(), dec);
 
+        // The Flight Map shares the Waterfall's node.
+        ImGui::DockBuilderDockWindow((std::string(_L("Flight Map")) + "###Flight Map").c_str(), rmid);
+
         int disp = 0;
         for (size_t i = 0; i < app.rx.size(); ++i)
         {
@@ -1548,10 +1554,10 @@ void drawDockHost(App& app)
             ImGui::DockBuilderDockWindow(wt.c_str(), rmid);
             ++disp;
         }
+        selectWaterfallTab = true;
         (void)disp;
         ImGui::DockBuilderDockWindow((std::string(_L("Messages")) + "###Messages").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Aircraft")) + "###Aircraft").c_str(), rbot);
-        ImGui::DockBuilderDockWindow((std::string(_L("Flight Map")) + "###Flight Map").c_str(), rbot);
         ImGui::DockBuilderDockWindow((std::string(_L("Voice Calls")) + "###Voice Calls").c_str(), rbot);
         ImGui::DockBuilderFinish(dockId);
     }
@@ -1586,7 +1592,49 @@ void drawDockHost(App& app)
                 app.showAbout = true;
             ImGui::EndMenu();
         }
+
+        // Right-aligned support link in the upper-right corner of the menu bar.
+        {
+            const char* label = _L("Support on Patreon");
+            float w = ImGui::CalcTextSize(label).x;
+            ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x -
+                            w - ImGui::GetStyle().ItemSpacing.x);
+            ImGui::TextLinkOpenURL(label, "https://www.patreon.com/cw/SarahRoseLives");
+        }
+
         ImGui::EndMenuBar();
+    }
+
+    // Select the Waterfall tab on every launch (and after a layout rebuild).
+    // Tab selection otherwise follows the order panels are submitted, so the
+    // Flight Map (submitted last) would win. The window does not exist on the
+    // first frame, so retry until it does, then stop and let the user switch.
+    if (selectWaterfallTab)
+    {
+        std::string name;
+        for (size_t i = 0; i < app.rx.size(); ++i)
+        {
+            if (!app.rx[i] || !app.rx[i]->wantsSpectrum())
+                continue;
+            name = std::string(_L("Waterfall")) + "###Waterfall" + std::to_string(i);
+            break;
+        }
+        if (!name.empty())
+        {
+            if (ImGuiWindow* w = ImGui::FindWindowByName(name.c_str()))
+            {
+                ImGui::SetWindowFocus(name.c_str());
+                // Also set the dock node's selected tab directly, so it wins
+                // regardless of the order panels are submitted this frame.
+                if (ImGuiDockNode* node = w->DockNode)
+                {
+                    node->SelectedTabId = w->TabId;
+                    if (node->TabBar)
+                        node->TabBar->NextSelectedTabId = w->TabId;
+                }
+                selectWaterfallTab = false;
+            }
+        }
     }
 
     ImGui::End();

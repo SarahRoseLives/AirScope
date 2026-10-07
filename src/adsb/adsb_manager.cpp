@@ -35,7 +35,11 @@ void AdsbManager::configure(double sampleRateHz, double centerHz)
 {
     sampleRate_ = sampleRateHz > 1.0 ? sampleRateHz : 2.4e6;
     centerHz_ = centerHz > 1.0 ? centerHz : 1090.0e6;
-    rateOk_ = std::fabs(sampleRate_ - 2.4e6) < 100e3;
+    // Any real source rate is usable now that we resample to 2.4 MS/s.
+    rateOk_ = sampleRate_ > 1.0;
+    std::lock_guard<std::mutex> lk(mtx_);
+    inBuf_.clear();
+    inPhase_ = 0.0;
 }
 
 void AdsbManager::start()
@@ -53,23 +57,56 @@ void AdsbManager::stop()
         thread_.join();
 }
 
+void AdsbManager::pushSample(float iv, float qv)
+{
+    int ii = (int)std::lround(iv * 127.0f + 127.5f);
+    int qq = (int)std::lround(qv * 127.0f + 127.5f);
+    if (ii < 0) ii = 0; else if (ii > 255) ii = 255;
+    if (qq < 0) qq = 0; else if (qq > 255) qq = 255;
+
+    ring_[write_] = adsb::g_magLut[ii][qq];
+    write_ = (write_ + 1) % kRingCap;
+    if (length_ < kRingCap)
+        ++length_;
+}
+
 void AdsbManager::feed(const float* iq, int nComplex)
 {
     if (!running_.load() || nComplex <= 0)
         return;
 
     std::lock_guard<std::mutex> lk(mtx_);
-    for (int k = 0; k < nComplex; ++k)
-    {
-        int ii = (int)std::lround(iq[k * 2] * 127.0f + 127.5f);
-        int qq = (int)std::lround(iq[k * 2 + 1] * 127.0f + 127.5f);
-        if (ii < 0) ii = 0; else if (ii > 255) ii = 255;
-        if (qq < 0) qq = 0; else if (qq > 255) qq = 255;
 
-        ring_[write_] = adsb::g_magLut[ii][qq];
-        write_ = (write_ + 1) % kRingCap;
-        if (length_ < kRingCap)
-            ++length_;
+    const double kTarget = 2.4e6;
+    if (std::fabs(sampleRate_ - kTarget) < 1.0)
+    {
+        // Source is already at the rate the demodulator expects.
+        for (int k = 0; k < nComplex; ++k)
+            pushSample(iq[k * 2], iq[k * 2 + 1]);
+        return;
+    }
+
+    // Linear-interpolating resampler. inPhase_ is the fractional position, in
+    // input samples, of the next output sample; step is the number of input
+    // samples per output sample.
+    inBuf_.insert(inBuf_.end(), iq, iq + (size_t)nComplex * 2);
+    const double step = sampleRate_ / kTarget;
+    const size_t have = inBuf_.size() / 2;
+    while (inPhase_ + 1.0 < (double)have)
+    {
+        size_t idx = (size_t)inPhase_;
+        float frac = (float)(inPhase_ - (double)idx);
+        float i0 = inBuf_[idx * 2], q0 = inBuf_[idx * 2 + 1];
+        float i1 = inBuf_[idx * 2 + 2], q1 = inBuf_[idx * 2 + 3];
+        pushSample(i0 + (i1 - i0) * frac, q0 + (q1 - q0) * frac);
+        inPhase_ += step;
+    }
+
+    size_t consumed = (size_t)inPhase_;
+    if (consumed)
+    {
+        inBuf_.erase(inBuf_.begin(), inBuf_.begin() + consumed * 2);
+        inPhase_ -= (double)consumed;
     }
 }
 

@@ -1,5 +1,7 @@
-// Per-receiver ADS-B engine: turns raw float IQ at ~2.4 MS/s into decoded
-// aircraft, feeding the shared AircraftTable and optional Beast output.
+// Per-receiver ADS-B engine: turns raw float IQ from any source rate into
+// decoded aircraft, feeding the shared AircraftTable and optional Beast
+// output. The demodulator is built for 2.4 MS/s, so the IQ is resampled to
+// that rate first (Airspy/SDRplay cannot be tuned to exactly 2.4 MS/s).
 #pragma once
 
 #include "adsb/adsb_decoder.h"
@@ -46,6 +48,10 @@ public:
 private:
     void workerLoop();
 
+    // Convert one normalised IQ sample to a magnitude LUT entry and append it
+    // to the ring. Caller must hold mtx_.
+    void pushSample(float iv, float qv);
+
     // ---- configuration ----
     double sampleRate_ = 2.4e6;
     double centerHz_ = 1090.0e6;
@@ -59,6 +65,10 @@ private:
     std::vector<uint16_t> ring_;
     size_t write_ = 0;
     size_t length_ = 0;
+
+    // ---- IQ resampler (source rate -> 2.4 MS/s) ----
+    std::vector<float> inBuf_;   // interleaved IQ pending resample
+    double inPhase_ = 0.0;       // fractional input index of next output sample
 
     // ---- worker ----
     std::thread thread_;
