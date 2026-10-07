@@ -43,8 +43,25 @@ if(AIRSPY_LIBRARIES)
 endif()
 
 # SDRplay (native source, optional).
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(SDRPLAY_ARCH x64)
+else()
+    set(SDRPLAY_ARCH x86)
+endif()
 find_path(SDRPLAY_INCLUDE_DIRS NAMES sdrplay_api.h)
 find_library(SDRPLAY_LIBRARIES NAMES sdrplay_api)
+# The Windows SDRplay API installs under Program Files, which is not part of
+# CMake's default search path. Add hints there (and honour SDRPLAY_API_ROOT /
+# the SDRPLAY_API_PATH environment variable). On Linux the system paths are
+# found by the calls above, so these hints are a no-op.
+if(WIN32 AND (NOT SDRPLAY_INCLUDE_DIRS OR NOT SDRPLAY_LIBRARIES))
+    find_path(SDRPLAY_INCLUDE_DIRS NAMES sdrplay_api.h
+        HINTS ${SDRPLAY_API_ROOT} "$ENV{SDRPLAY_API_PATH}" "$ENV{ProgramFiles}/SDRplay/API"
+        PATH_SUFFIXES inc)
+    find_library(SDRPLAY_LIBRARIES NAMES sdrplay_api
+        HINTS ${SDRPLAY_API_ROOT} "$ENV{SDRPLAY_API_PATH}" "$ENV{ProgramFiles}/SDRplay/API"
+        PATH_SUFFIXES ${SDRPLAY_ARCH})
+endif()
 set(SDRPLAY_FOUND FALSE)
 if(SDRPLAY_INCLUDE_DIRS AND SDRPLAY_LIBRARIES)
     set(SDRPLAY_FOUND TRUE)
@@ -231,9 +248,6 @@ if(WIN32)
     if(AIRSPY_FOUND)
         list(APPEND FRAMESYNC_RUNTIME_DLLS libairspy.dll)
     endif()
-    if(SDRPLAY_FOUND)
-        list(APPEND FRAMESYNC_RUNTIME_DLLS sdrplay_api.dll)
-    endif()
     foreach(dll ${FRAMESYNC_RUNTIME_DLLS})
         if(EXISTS "${MINGW_BIN}/${dll}")
             add_custom_command(TARGET AirScope POST_BUILD
@@ -250,4 +264,24 @@ if(WIN32)
                 "${WEBVIEW2_ROOT}/x64/WebView2Loader.dll"
                 "$<TARGET_FILE_DIR:AirScope>"
         COMMENT "Copying WebView2Loader.dll")
+
+    # sdrplay_api.dll is installed by the SDRplay API under Program Files, not
+    # the MINGW bin dir — copy it next to the exe so SDRplay devices work
+    # standalone.
+    if(SDRPLAY_FOUND)
+        get_filename_component(SDRPLAY_LIB_DIR "${SDRPLAY_LIBRARIES}" DIRECTORY)
+        find_file(SDRPLAY_RUNTIME NAMES sdrplay_api.dll
+            HINTS "${SDRPLAY_LIB_DIR}"
+                  "$ENV{ProgramFiles}/SDRplay/API/${SDRPLAY_ARCH}"
+                  "${SDRPLAY_API_ROOT}/${SDRPLAY_ARCH}")
+        if(SDRPLAY_RUNTIME)
+            add_custom_command(TARGET AirScope POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${SDRPLAY_RUNTIME}" "$<TARGET_FILE_DIR:AirScope>"
+                COMMENT "Copying sdrplay_api.dll")
+        else()
+            message(WARNING "sdrplay_api.dll not found; SDRplay devices need the "
+                            "SDRplay API service installed")
+        endif()
+    endif()
 endif()

@@ -1,5 +1,8 @@
 AGENTS.md
 build/
+# The vendored WebView2 SDK lives under a directory literally named "build";
+# keep it tracked so Windows builds have the C++ headers and import library.
+!third_party/webview2/build/
 dist/
 target/
 out/
