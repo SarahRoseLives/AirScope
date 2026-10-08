@@ -1548,6 +1548,7 @@ void drawAbout(App& app)
         ImGui::TextDisabled("  goadsb (Sarah Rose)");
         ImGui::TextDisabled("  acarsdec (Thierry Leconte)");
         ImGui::TextDisabled("  libacars (Tomasz Lemiech)");
+        ImGui::TextDisabled("  dumpvdl2 (Tomasz Lemiech)");
         ImGui::TextDisabled("  Dear ImGui / ImPlot");
         ImGui::Spacing();
         ImGui::TextWrapped("Thanks to Mike AA8IA for donating an Airspy R2 and Airspy Mini for development.");
