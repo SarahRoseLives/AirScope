@@ -38,6 +38,7 @@ pacman -S --needed \
   mingw-w64-x86_64-cmake \
   mingw-w64-x86_64-ninja \
   mingw-w64-x86_64-pkgconf \
+  mingw-w64-x86_64-glib2 \
   mingw-w64-x86_64-glfw \
   mingw-w64-x86_64-rtl-sdr \
   mingw-w64-x86_64-libusb \
@@ -53,7 +54,9 @@ These provide: GCC/G++, CMake, Ninja, pkg-config, GLFW (windowing), librtlsdr +
 libusb (RTL-SDR) and zstd (compression). OpenGL and zlib
 ship with the toolchain. libogg + libvorbis provide OGG Vorbis voice recording.
 SQLite3 provides the message archive database.  libxml2 is required
-by the ACARS application decoder (CPDLC/ADS-C parsing).
+by the ACARS application decoder (CPDLC/ADS-C parsing).  GLib 2 provides
+headers only, used by the vendored VDL2 decoder (dumpvdl2 core); no GLib
+runtime is linked.
 
 All other dependencies (Dear ImGui, ImPlot, libacars,
 miniaudio, WebView2 SDK) are vendored in `third_party/` — the repo is fully
@@ -146,6 +149,7 @@ On **Debian / Ubuntu**:
 ```bash
 sudo apt-get install -y \
   build-essential cmake ninja-build pkg-config \
+  libglib2.0-dev \
   libglfw3-dev libgl1-mesa-dev \
   librtlsdr-dev libusb-1.0-0-dev \
   libzstd-dev zlib1g-dev \
@@ -158,7 +162,7 @@ On **Arch / Manjaro**:
 ```bash
 sudo pacman -S --needed \
   base-devel cmake ninja pkgconf \
-  glfw rtl-sdr libusb \
+  glib2 glfw rtl-sdr libusb \
   zstd zlib libogg libvorbis \
   sqlite libxml2 jansson
 ```
@@ -168,6 +172,7 @@ On **Fedora**:
 ```bash
 sudo dnf install -y \
   gcc-c++ cmake ninja-build pkgconf-pkg-config \
+  glib2-devel \
   glfw-devel mesa-libGL-devel \
   rtl-sdr-devel libusb1-devel \
   libzstd-devel zlib-devel \

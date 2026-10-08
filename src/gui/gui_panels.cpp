@@ -303,6 +303,21 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
             r.decoders.removeAll();
         ImGui::TextDisabled("5 common channels auto-added on Start (full set = %d).",
                             kNumAcarsFreqs);
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("VDL2 (ACARS over VDL2)");
+        ImGui::Checkbox("Enable VDL2##vdl2en", &app.vdl2Enabled);
+        ImGui::SameLine();
+        ImGui::Checkbox("Invert Q##vdl2conj", &app.vdl2Conjugate);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Tune 136.975##vdl2tune"))
+        {
+            r.centerMHz = 136.975;
+            if (running)
+                r.src->setCenterFreq(136.975e6);
+        }
+        ImGui::TextDisabled("Applied on Start. Decodes the VDL2 channels inside the");
+        ImGui::TextDisabled("current bandwidth (136.975 primary; 136.875/136.725 ...).");
     }
 
     if (!r.status.empty())
@@ -798,7 +813,7 @@ void drawDecoders(App& app)
 
     struct Row { Receiver* r; DecoderManager::Status s; };
     std::vector<Row> rows;
-    int subbands = 0, threads = 0, adsbN = 0;
+    int subbands = 0, threads = 0, adsbN = 0, vdl2N = 0;
     uint64_t drops = 0;
     for (auto& rp : app.rx)
     {
@@ -809,9 +824,10 @@ void drawDecoders(App& app)
         threads += rp->decoders.workerCount();
         drops += rp->decoders.drops();
         if (rp->adsb && rp->running()) ++adsbN;
+        if (rp->vdl2) vdl2N += (int)rp->vdl2->channelsMHz().size();
     }
-    ImGui::Text("%d active  |  %d ADS-B  |  %d sub-band(s)  %d threads",
-                (int)rows.size(), adsbN, subbands, threads);
+    ImGui::Text("%d active  |  %d ADS-B  |  %d VDL2  |  %d sub-band(s)  %d threads",
+                (int)rows.size(), adsbN, vdl2N, subbands, threads);
     ImGui::SameLine();
     if (drops > 0)
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "  drops: %llu", (unsigned long long)drops);
@@ -917,6 +933,50 @@ void drawDecoders(App& app)
             ImGui::TextDisabled("%d ac", rp->adsb->aircraftCount());
             copyRows.push_back(copyFmt("%.4f\tADS-B\t%llu", rp->centerMHz,
                 (unsigned long long)s.good));
+        }
+
+        // VDL2 pseudo-decoder rows (one per active VDL2 channel) so the
+        // scanned frequencies and their message counts are visible.
+        for (auto& rp : app.rx)
+        {
+            if (!rp || !rp->vdl2 || rp->vdl2->channelsMHz().empty())
+                continue;
+            bool vdl2Up = rp->vdl2->running();
+            int rxNo = (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                [&](const std::unique_ptr<Receiver>& p){ return p.get() == rp.get(); }) -
+                app.rx.begin()) + 1;
+            for (double mhz : rp->vdl2->channelsMHz())
+            {
+                uint32_t hz = (uint32_t)std::llround(mhz * 1e6);
+                uint64_t n = rp->vdl2->channelMsgs(hz);
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Text("%d", rxNo);
+                ImGui::TableNextColumn();
+                ImVec4 ac = vdl2Up ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
+                                   : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                ImGui::TextColored(ac, "%s", vdl2Up ? "MON" : "--");
+                ImGui::TableNextColumn();
+                ImGui::Text("%.4f", mhz);
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted("VDL2");
+                ImGui::TableNextColumn();
+                ImGui::Text("%llu", (unsigned long long)n);
+                ImGui::TableNextColumn();
+                {
+                    uint64_t drops = rp->vdl2->droppedCount();
+                    if (drops)
+                        ImGui::TextColored(Lc(app, ImVec4(1.0f, 0.5f, 0.2f, 1.0f)),
+                                           "%llu fr, %llu drop",
+                                           (unsigned long long)rp->vdl2->frameCount(),
+                                           (unsigned long long)drops);
+                    else
+                        ImGui::TextDisabled("%llu fr",
+                                            (unsigned long long)rp->vdl2->frameCount());
+                }
+                copyRows.push_back(copyFmt("%.4f\tVDL2\t%llu", mhz,
+                    (unsigned long long)n));
+            }
         }
 
         for (auto& row : rows)

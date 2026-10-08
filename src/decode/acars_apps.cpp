@@ -1,6 +1,9 @@
 #include "decode/acars_apps.h"
+#include "decode/libacars_lock.h"
 
+#include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
@@ -25,7 +28,92 @@ bool isBasicReportTag(uint8_t t)
     return t == 7 || t == 9 || t == 10 || t == 18 || t == 19 || t == 20;
 }
 
+// Parse one coordinate starting at `i` (which must point at N/S/E/W).
+// Accepts the common ACARS decimal-minute encodings, e.g. ddmm.m (5 digits),
+// dddmm.m (6 digits) and the seconds variants. Advances `i` past the token.
+bool parseCoord(const std::string& s, size_t& i, double& val)
+{
+    char c = (char)std::toupper((unsigned char)s[i]);
+    bool isLat = (c == 'N' || c == 'S');
+    if (!isLat && c != 'E' && c != 'W')
+        return false;
+    int degDigits = isLat ? 2 : 3;
+    // Coordinate is ddmm.m / dddmm.m (deg + min + tenths). Cap the digit run
+    // at this length: in concatenated reports the following numeric fields
+    // (altitude/speed) run straight on with no separator.
+    int maxDigits = degDigits + 3;
+    size_t j = i + 1;
+    int nd = 0;
+    while (nd < maxDigits && j < s.size() && std::isdigit((unsigned char)s[j]))
+    {
+        ++j;
+        ++nd;
+    }
+    if (nd < degDigits + 2)
+        return false;
+
+    std::string d = s.substr(i + 1, (size_t)nd);
+    double deg = std::atof(d.substr(0, (size_t)degDigits).c_str());
+    double min = std::atof(d.substr((size_t)degDigits, 2).c_str());
+    std::string rest = d.substr((size_t)degDigits + 2);
+    if (rest.size() == 1)
+        min += std::atof(("0." + rest).c_str());
+    else if (rest.size() == 2)
+        min += std::atof(rest.c_str()) / 60.0; // seconds
+    if (deg > 90.0 && isLat)
+        return false;
+    val = deg + min / 60.0;
+    if (c == 'S' || c == 'W')
+        val = -val;
+    i = j - 1;
+    return true;
+}
+
 } // namespace
+
+extern "C" void airscope_libacars_lock(void) { g_decodeMtx.lock(); }
+extern "C" void airscope_libacars_unlock(void) { g_decodeMtx.unlock(); }
+
+bool parseAcarsPosition(const std::string& text, double& lat, double& lon)
+{
+    bool gotLat = false, gotLon = false;
+    for (size_t i = 0; i < text.size(); ++i)
+    {
+        char c = (char)std::toupper((unsigned char)text[i]);
+        // Ignore N/S/E/W that are part of a word (e.g. the "S" in "POS").
+        if (i > 0 && std::isalpha((unsigned char)text[i - 1]))
+            continue;
+        if ((c == 'N' || c == 'S') && !gotLat)
+        {
+            double v;
+            size_t k = i;
+            if (parseCoord(text, k, v) && v >= -90.0 && v <= 90.0)
+            {
+                lat = v;
+                gotLat = true;
+                i = k;
+            }
+        }
+        else if ((c == 'E' || c == 'W') && !gotLon)
+        {
+            double v;
+            size_t k = i;
+            if (parseCoord(text, k, v) && v >= -180.0 && v <= 180.0)
+            {
+                lon = v;
+                gotLon = true;
+                i = k;
+            }
+        }
+        if (gotLat && gotLon)
+            break;
+    }
+    if (!gotLat || !gotLon)
+        return false;
+    if (lat == 0.0 && lon == 0.0)
+        return false;
+    return true;
+}
 
 AcarsAppResult decodeAcarsApps(const std::string& label, const std::string& text,
                                bool downlink)

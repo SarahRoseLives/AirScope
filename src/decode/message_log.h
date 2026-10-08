@@ -140,11 +140,18 @@ class AircraftTable
 public:
     void update(const DecodedMessage& m, double nowSec)
     {
-        if (m.aesId == 0)
-            return;
         std::lock_guard<std::mutex> lk(mtx_);
-        AircraftEntry& e = byId_[m.aesId];
-        e.aesId = m.aesId;
+        // Key by ICAO/AES when known, otherwise by registration so ACARS/VDL2
+        // aircraft that carry no 24-bit address still appear on the map.
+        AircraftEntry* ep = nullptr;
+        if (m.aesId != 0)
+            ep = &byId_[m.aesId];
+        else if (!m.reg.empty())
+            ep = &byReg_[m.reg];
+        else
+            return;
+        AircraftEntry& e = *ep;
+        if (m.aesId != 0)      e.aesId = m.aesId;
         if (!m.icao.empty())   e.icao = m.icao;
         if (!m.reg.empty())    e.reg = m.reg;
         if (!m.flight.empty()) e.flight = m.flight;
@@ -165,8 +172,10 @@ public:
     {
         std::lock_guard<std::mutex> lk(mtx_);
         std::vector<AircraftEntry> out;
-        out.reserve(byId_.size());
+        out.reserve(byId_.size() + byReg_.size());
         for (auto& kv : byId_)
+            out.push_back(kv.second);
+        for (auto& kv : byReg_)
             out.push_back(kv.second);
         return out;
     }
@@ -174,13 +183,14 @@ public:
     size_t count()
     {
         std::lock_guard<std::mutex> lk(mtx_);
-        return byId_.size();
+        return byId_.size() + byReg_.size();
     }
 
     void clear()
     {
         std::lock_guard<std::mutex> lk(mtx_);
         byId_.clear();
+        byReg_.clear();
     }
 
     // Quick ICAO-only update (no position/flight).
@@ -207,6 +217,7 @@ public:
 private:
     mutable std::mutex mtx_;
     std::map<uint32_t, AircraftEntry> byId_;
+    std::map<std::string, AircraftEntry> byReg_;
 };
 
 // A recorded voice call (VHF AM voice, one file per call).

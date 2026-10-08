@@ -160,13 +160,28 @@ void updateRateChange(App& app)
                     break;
                 }
         rp->lastConfiguredFs = fs;
+        rp->lastConfiguredCenter = center;
         if (rp->adsb)
             rp->adsb->configure(fs, center);
+        reconfigureVdl2(app, *rp);
         if (rp == app.rx.front())
             app.iqRecorder.configurePrebuffer(fs, app.iqBufferSec);
         rp->view.resetView = true;
         if (rp->view.curN > 0)
             updateFreqAxis(rp->view, center, fs, rp->view.curN);
+    }
+
+    // Retuning changes which VDL2 channels fall inside the bandwidth.
+    for (auto& rp : app.rx)
+    {
+        if (!rp || !rp->src || !rp->src->running())
+            continue;
+        double center = rp->src->centerFreq();
+        if (std::fabs(center - rp->lastConfiguredCenter) > 1.0)
+        {
+            rp->lastConfiguredCenter = center;
+            reconfigureVdl2(app, *rp);
+        }
     }
 }
 

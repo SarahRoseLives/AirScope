@@ -21,3 +21,8 @@ struct AcarsAppResult
 // Returns decoded=false when there is no recognizable embedded application.
 AcarsAppResult decodeAcarsApps(const std::string& label, const std::string& text,
                                bool downlink);
+
+// Fallback for plain-text position reports (e.g. "*POS...N42243W078560...")
+// that libacars does not decode. Parses a decimal-minute lat/lon pair out of
+// free text. Returns true and fills lat/lon when a valid pair is found.
+bool parseAcarsPosition(const std::string& text, double& lat, double& lon);

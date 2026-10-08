@@ -25,6 +25,10 @@ code retargeted to the airband and ADS-B.
 
 - **ACARS** decoding with application layer output (CPDLC / ADS-C / MIAM) via
   libacars
+- **VDL2** — ACARS over VHF Data Link Mode 2 on the ACARS/VDL2 receiver, decoded
+  with a vendored dumpvdl2 core. Tune near **136.975 MHz** (primary) or the other
+  VDL2 channels (136.875 / 136.725 / 136.775 / 136.925 ...); the channels that
+  fall inside the receiver's bandwidth are scanned automatically
 - **AM voice** with squelch, live listening and WAV/OGG recording
 - **Voice scanner** — watches the spectrum and automatically opens a decoder on
   each new voice call, following the active one and closing it when it ends

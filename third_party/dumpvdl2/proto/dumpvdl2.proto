@@ -1,0 +1,47 @@
+/*
+ *  dumpvdl2 - a VDL Mode 2 message decoder and protocol analyzer
+ *
+ *  Copyright (c) 2017-2026 Tomasz Lemiech <szpajder@gmail.com>
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+syntax = "proto3";
+
+package dumpvdl2;
+
+message vdl2_msg_metadata {
+	string station_id = 1;
+	uint32 frequency = 2;
+	uint32 synd_weight = 3;
+	uint32 datalen_octets = 4;
+	float frame_pwr_dbfs = 5;
+	float nf_pwr_dbfs = 6;
+	float ppm_error = 7;
+	int32 version = 8;
+	int32 num_fec_corrections = 9;
+	int32 idx = 10;
+
+	message timestamp {
+		int64 tv_sec = 1;
+		int64 tv_usec = 2;
+	}
+
+	timestamp burst_timestamp = 11;
+}
+
+message raw_avlc_frame {
+	dumpvdl2.vdl2_msg_metadata metadata = 1;
+	bytes data = 2;
+}

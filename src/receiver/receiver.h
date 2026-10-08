@@ -10,6 +10,7 @@
 #include "sdr/sdr_source.h"
 #include "decode/decoder_manager.h"
 #include "decode/band_plan.h"
+#include "decode/vdl2/vdl2_manager.h"
 #include "adsb/adsb_manager.h"
 
 #include <atomic>
@@ -38,7 +39,7 @@ inline const char* rxRoleName(RxRole r)
     switch (r)
     {
     case RxRole::Voice: return "Voice";
-    case RxRole::Acars: return "ACARS/DATA";
+    case RxRole::Acars: return "ACARS/VDL2";
     case RxRole::Adsb:  return "ADS-B";
     }
     return "?";
@@ -84,6 +85,7 @@ struct Receiver
     SpectrumView   view;
     DecoderManager decoders;
     std::unique_ptr<AdsbManager> adsb; // non-null only for the ADS-B role
+    std::unique_ptr<Vdl2Manager> vdl2; // non-null only for the ACARS role
 
     // ---- per-receiver tuner configuration ----
     int    deviceIndex = 0;
@@ -136,6 +138,7 @@ struct Receiver
     std::vector<std::pair<double,int>> savedDecoders; // freqMHz, baud
     uint64_t lastFeedCount = 0;
     double   lastConfiguredFs = 0.0;
+    double   lastConfiguredCenter = 0.0;
 
     bool running() const { return src && src->running(); }
     double sampleRate() const { return src ? src->sampleRate() : 0.0; }

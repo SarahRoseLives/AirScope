@@ -18,6 +18,9 @@ void updateCallHunter(App&);
 void updateFeed(App&);
 void startAll(App&);
 void stopAll(App&);
+// (Re)configure the ACARS receiver's VDL2 engine for the current source rate
+// and centre frequency. Starts it when VDL2 channels fit the bandwidth.
+void reconfigureVdl2(App&, Receiver&);
 
 // gui/gui_panels.cpp
 void drawDockHost(App&);

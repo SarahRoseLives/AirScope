@@ -80,6 +80,10 @@ struct App
     int    callHunterWarmup = 0;
     double callHunterLastCenter = 0.0;
 
+    // VDL2 (ACARS-over-VDL2) on the ACARS/VDL2 receiver.
+    bool vdl2Enabled = true;
+    bool vdl2Conjugate = false; // invert Q for recordings with flipped spectrum
+
     // Output
     MessageFeed feed;
     VersionCheck verCheck;

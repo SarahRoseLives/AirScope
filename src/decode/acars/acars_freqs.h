@@ -25,3 +25,23 @@ static const double kAcarsCommonFreqsMHz[] = {
 static constexpr int kNumAcarsCommon =
     (int)(sizeof(kAcarsCommonFreqsMHz) / sizeof(kAcarsCommonFreqsMHz[0]));
 
+// VHF Data Link Mode 2 (VDL2) channel plan (MHz). VDL2 carries ACARS and
+// CPDLC/ADS-C; see the ACARS/VDL2 receiver. 136.975 is the primary channel.
+static const double kAcarsVdl2FreqsMHz[] = {
+    136.650, 136.700, 136.725, 136.750, 136.775, 136.800, 136.825,
+    136.850, 136.875, 136.900, 136.925, 136.950, 136.975,
+};
+static constexpr int kNumAcarsVdl2Freqs =
+    (int)(sizeof(kAcarsVdl2FreqsMHz) / sizeof(kAcarsVdl2FreqsMHz[0]));
+
+// The VDL2 channels most commonly in use.
+static const double kAcarsVdl2CommonFreqsMHz[] = {
+    136.975,  //  1: primary worldwide
+    136.875,  //  2
+    136.725,  //  3
+    136.775,  //  4
+    136.925,  //  5
+};
+static constexpr int kNumAcarsVdl2Common =
+    (int)(sizeof(kAcarsVdl2CommonFreqsMHz) / sizeof(kAcarsVdl2CommonFreqsMHz[0]));
+

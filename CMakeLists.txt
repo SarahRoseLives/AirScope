@@ -112,6 +112,39 @@ set(LA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/libacars ${CMAKE_BINARY_DIR}/libacars EXCLUDE_FROM_ALL)
 
 # ---------------------------------------------------------------------------
+# VDL2 (ACARS-over-VDL2): the dumpvdl2 demodulator/decoder core, ACARS path
+# only. Uses GLib 2 headers via pkg-config; no GLib symbols are linked.
+# ---------------------------------------------------------------------------
+pkg_check_modules(GLIB2 REQUIRED glib-2.0)
+set(DUMPVDL2_DIR ${CMAKE_SOURCE_DIR}/third_party/dumpvdl2)
+set(DUMPVDL2_INC ${CMAKE_BINARY_DIR}/dumpvdl2)
+file(MAKE_DIRECTORY ${DUMPVDL2_INC})
+file(WRITE ${DUMPVDL2_INC}/config.h
+"#ifndef _CONFIG_H\n#define _CONFIG_H\n#define HAVE_PTHREAD_BARRIERS 1\n#define SINCOSF sincosf\n#define LIBZMQ_VER_MAJOR_MIN 3\n#define LIBZMQ_VER_MINOR_MIN 2\n#define LIBZMQ_VER_PATCH_MIN 0\n#endif\n")
+
+add_library(vdl2core STATIC
+    ${DUMPVDL2_DIR}/src/demod.c
+    ${DUMPVDL2_DIR}/src/bitstream.c
+    ${DUMPVDL2_DIR}/src/chebyshev.c
+    ${DUMPVDL2_DIR}/src/crc.c
+    ${DUMPVDL2_DIR}/src/rs.c
+    ${DUMPVDL2_DIR}/src/util.c
+    ${DUMPVDL2_DIR}/src/libfec/decode_rs_char.c
+    ${DUMPVDL2_DIR}/src/libfec/init_rs_char.c
+    ${CMAKE_SOURCE_DIR}/src/decode/vdl2/vdl2_burst.c
+    ${CMAKE_SOURCE_DIR}/src/decode/vdl2/vdl2_engine.c
+)
+target_include_directories(vdl2core PUBLIC
+    ${DUMPVDL2_DIR}/src
+    ${DUMPVDL2_INC}
+    ${CMAKE_SOURCE_DIR}/third_party/libacars
+    ${GLIB2_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(vdl2core PUBLIC acars_static m)
+target_compile_definitions(vdl2core PRIVATE _GNU_SOURCE)
+
+# ---------------------------------------------------------------------------
 # AirScope application
 # ---------------------------------------------------------------------------
 add_executable(AirScope
@@ -130,6 +163,7 @@ add_executable(AirScope
     src/decode/decoder.cpp
     src/decode/decoder_manager.cpp
     src/decode/acars/acars_decoder.cpp
+    src/decode/vdl2/vdl2_manager.cpp
     src/decode/acars_apps.cpp
     src/decode/icao_country.cpp
     src/decode/band_plan.cpp
@@ -194,7 +228,7 @@ if(NOT OGG_FOUND OR NOT VORBIS_FOUND)
     find_library(VORBISENC_LIBRARIES NAMES vorbisenc libvorbisenc REQUIRED)
 endif()
 
-target_link_libraries(AirScope PRIVATE imgui acars_static ${ZLIB_LIB} ${RTLSDR_LIBRARIES} ${ZSTD_LIBRARIES} ${OGG_LIBRARIES} ${VORBIS_LIBRARIES} ${VORBISENC_LIBRARIES} ${SQLITE3_LIB} ${XML2_LIB} ${JANSSON_LIB})
+target_link_libraries(AirScope PRIVATE imgui acars_static vdl2core ${ZLIB_LIB} ${RTLSDR_LIBRARIES} ${ZSTD_LIBRARIES} ${OGG_LIBRARIES} ${VORBIS_LIBRARIES} ${VORBISENC_LIBRARIES} ${SQLITE3_LIB} ${XML2_LIB} ${JANSSON_LIB})
 if(WIN32)
     target_link_libraries(AirScope PRIVATE ${WEBVIEW2_LIB})
 endif()

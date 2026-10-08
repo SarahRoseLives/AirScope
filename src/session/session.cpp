@@ -60,12 +60,15 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
     IqRing* ring = &r.view.ring;
     DecoderManager* mgr = &r.decoders;
     AdsbManager* adsb = r.adsb.get();
+    Receiver* self = &r;
     IqRecorder* iqr = feedIqRecorder ? &app.iqRecorder : nullptr;
-    auto cb = [ring, mgr, adsb, iqr](const float* iq, int n) {
+    auto cb = [ring, mgr, adsb, iqr, self](const float* iq, int n) {
         ring->push(iq, (size_t)n);
         mgr->feed(iq, n);
         if (adsb)
             adsb->feed(iq, n);
+        if (self->vdl2 && self->vdl2->running())
+            self->vdl2->feed(iq, n);
         if (iqr)
         {
             iqr->prebuffer(iq, n);
@@ -168,8 +171,45 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
         }
 
         r.lastFeedCount = r.decoders.log().count();
+
+        // VDL2 (ACARS-over-VDL2) runs inside the ACARS receiver.
+        reconfigureVdl2(app, r);
     }
     return ok;
+}
+
+// VDL2 channels from the standard plan that fall inside the current bandwidth.
+static std::vector<double> vdl2ChannelsInBand(double fs, double centerHz)
+{
+    std::vector<double> out;
+    double half = fs * 0.5 - 150.0e3;
+    for (int i = 0; i < kNumAcarsVdl2Freqs; ++i)
+    {
+        double hz = kAcarsVdl2FreqsMHz[i] * 1e6;
+        if (std::fabs(hz - centerHz) <= half)
+            out.push_back(kAcarsVdl2FreqsMHz[i]);
+    }
+    return out;
+}
+
+void reconfigureVdl2(App& app, Receiver& r)
+{
+    if (r.vdl2)
+        r.vdl2->stop();
+    if (r.role != RxRole::Acars || !app.vdl2Enabled || !r.src || !r.src->running())
+        return;
+    if (!r.vdl2)
+        r.vdl2 = std::make_unique<Vdl2Manager>();
+
+    double fs = r.src->sampleRate();
+    double ctr = r.src->centerFreq();
+    std::vector<double> freqs = vdl2ChannelsInBand(fs, ctr);
+    r.vdl2->setChannels(freqs);
+    if (freqs.empty())
+        return;
+    r.vdl2->setMessageLog(&r.decoders.log());
+    r.vdl2->setAircraftTable(&r.decoders.aircraftTable());
+    r.vdl2->start(fs, ctr, freqs, app.vdl2Conjugate);
 }
 
 void startAll(App& app)
@@ -206,6 +246,8 @@ void stopAll(App& app)
             rp->src->stop();
         if (rp->adsb)
             rp->adsb->stop();
+        if (rp->vdl2)
+            rp->vdl2->stop();
         rp->decoders.stop();
         rp->decoders.removeAll();
         rp->status = "Idle";
