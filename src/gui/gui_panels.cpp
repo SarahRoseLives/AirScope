@@ -308,8 +308,6 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
         ImGui::TextUnformatted("VDL2 (ACARS over VDL2)");
         ImGui::Checkbox("Enable VDL2##vdl2en", &app.vdl2Enabled);
         ImGui::SameLine();
-        ImGui::Checkbox("Invert Q##vdl2conj", &app.vdl2Conjugate);
-        ImGui::SameLine();
         if (ImGui::SmallButton("Tune 136.975##vdl2tune"))
         {
             r.centerMHz = 136.975;
