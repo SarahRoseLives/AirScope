@@ -20,68 +20,62 @@ static double nl(double declat)
     return std::floor((2.0 * M_PI) / std::acos(v));
 }
 
-static void airborneCPRDecode(double evenLat, double evenLon, double oddLat, double oddLon,
-                              double& outLat, double& outLon)
+// Mathematical modulo (always non-negative), unlike fmod.
+static double posMod(double a, double b) { return a - b * std::floor(a / b); }
+
+// Approximate great-circle distance in nautical miles.
+static double distNm(double lat1, double lon1, double lat2, double lon2)
 {
-    const double dLatEven = 360.0 / 60.0;
-    const double dLatOdd  = 360.0 / 59.0;
-
-    double j = std::floor(59.0 * evenLat - 60.0 * oddLat + 0.5);
-    double latEven = dLatEven * (std::fmod(j, 60.0) + evenLat);
-    double latOdd  = dLatOdd  * (std::fmod(j, 59.0) + oddLat);
-
-    if (latEven >= 270) latEven -= 360;
-    if (latOdd >= 270)  latOdd -= 360;
-
-    if (nl(latEven) != nl(latOdd))
-    {
-        outLat = latEven;
-        outLon = evenLon;
-        return;
-    }
-
-    double ni = nl(latEven);
-    if (ni < 1) ni = 1;
-
-    double dLon = 360.0 / ni;
-    double m = std::floor(evenLon * (ni - 1.0) - oddLon * ni + 0.5);
-    double lon = dLon * (std::fmod(m, ni) + evenLon);
-    if (lon >= 180) lon -= 360;
-
-    outLat = latEven;
-    outLon = lon;
+    double dlat = (lat2 - lat1) * 60.0;
+    double dlon = (lon2 - lon1) * 60.0 *
+                  std::cos((lat1 + lat2) * 0.5 * M_PI / 180.0);
+    return std::sqrt(dlat * dlat + dlon * dlon);
 }
 
-static void surfaceCPRDecode(double evenLat, double evenLon, double oddLat, double oddLon,
-                             double& outLat, double& outLon)
+// Global CPR decode. `evenNewer` selects which frame's latitude zone is the
+// reference (dump1090/pyModeS). `span` is 360 for airborne, 90 for surface.
+static bool cprDecode(double evenLat, double evenLon, double oddLat, double oddLon,
+                      bool evenNewer, double span, double& outLat, double& outLon)
 {
-    const double dLatEven = 90.0 / 60.0;
-    const double dLatOdd  = 90.0 / 59.0;
+    const double dLatEven = span / 60.0;
+    const double dLatOdd  = span / 59.0;
 
     double j = std::floor(59.0 * evenLat - 60.0 * oddLat + 0.5);
-    double latEven = dLatEven * (std::fmod(j, 60.0) + evenLat);
-    double latOdd  = dLatOdd  * (std::fmod(j, 59.0) + oddLat);
+    double latEven = dLatEven * (posMod(j, 60.0) + evenLat);
+    double latOdd  = dLatOdd  * (posMod(j, 59.0) + oddLat);
 
     if (latEven >= 270) latEven -= 360;
     if (latOdd >= 270)  latOdd -= 360;
 
-    if (nl(latEven) != nl(latOdd))
+    double lat, lon, ni;
+    if (evenNewer)
     {
-        outLat = latEven;
-        outLon = evenLon;
-        return;
+        lat = latEven;
+        double n = nl(lat);
+        if (n < 1) n = 1;
+        ni = n;
+        double m = std::floor(evenLon * (n - 1.0) - oddLon * n + 0.5);
+        lon = (span / ni) * (posMod(m, ni) + evenLon);
+    }
+    else
+    {
+        lat = latOdd;
+        double n = nl(lat);
+        if (n < 1) n = 1;
+        ni = n - 1.0;
+        if (ni < 1) ni = 1;
+        double m = std::floor(evenLon * (n - 1.0) - oddLon * n + 0.5);
+        lon = (span / ni) * (posMod(m, ni) + oddLon);
     }
 
-    double ni = nl(latEven);
-    if (ni < 1) ni = 1;
+    if (lon >= 180.0) lon -= 360.0;
+    if (lon < -180.0) lon += 360.0;
+    if (lat < -90.0 || lat > 90.0 || lon < -180.0 || lon > 180.0)
+        return false;
 
-    double dLon = 90.0 / ni;
-    double m = std::floor(evenLon * (ni - 1.0) - oddLon * ni + 0.5);
-    double lon = dLon * (std::fmod(m, ni) + evenLon);
-    if (lon >= 180) lon -= 360;
-
-    outLat = latEven;
+    outLat = lat;
     outLon = lon;
+    return true;
 }
 
 TrackResult Tracker::update(const Decoded& msg, double nowSec)
@@ -117,6 +111,7 @@ TrackResult Tracker::update(const Decoded& msg, double nowSec)
     r.lat = a.lat;
     r.lon = a.lon;
     r.alt = a.altitude;
+    r.heading = a.heading;
     r.callsign = a.callsign;
     return r;
 }
@@ -141,16 +136,43 @@ void Tracker::updateCPR(Entry& e, const Decoded& msg, double nowSec)
     if (!e.cprEvenValid || !e.cprOddValid)
         return;
 
-    double evenLat = e.cprEvenLat, evenLon = e.cprEvenLon;
-    double oddLat = e.cprOddLat, oddLon = e.cprOddLon;
+    // The pair must be received close together, otherwise the decode locks to
+    // the wrong latitude/longitude zone and the aircraft jumps around. dump1090
+    // uses 10 s; with sparse reception a stale frame must simply be discarded.
+    if (std::fabs(e.cprEvenTime - e.cprOddTime) > 10.0)
+        return;
 
-    if (msg.meType >= 5 && msg.meType <= 8)
-        surfaceCPRDecode(evenLat, evenLon, oddLat, oddLon, e.ac.lat, e.ac.lon);
-    else
-        airborneCPRDecode(evenLat, evenLon, oddLat, oddLon, e.ac.lat, e.ac.lon);
+    bool evenNewer = e.cprEvenTime >= e.cprOddTime;
+    double span = (msg.meType >= 5 && msg.meType <= 8) ? 90.0 : 360.0;
 
+    double lat = 0.0, lon = 0.0;
+    if (!cprDecode(e.cprEvenLat, e.cprEvenLon, e.cprOddLat, e.cprOddLon,
+                   evenNewer, span, lat, lon))
+        return;
+
+    // Reject implausible jumps. A single flipped bit in the CPR field still
+    // passes CRC but resolves to a position in the wrong zone (the "other side
+    // of the world"). Only accept a fix that is reachable from the last one.
+    if (e.cprValid && e.lastPosTime > 0.0)
+    {
+        double dt = nowSec - e.lastPosTime;
+        if (dt >= 0.0 && dt < 60.0)
+        {
+            double d = distNm(e.ac.lat, e.ac.lon, lat, lon);
+            double maxNm = 1.0 + 0.6 * dt; // ~1 nm jitter + up to ~2160 kt
+            // Accept after several consistent rejects in case the *old* fix was
+            // the corrupt one.
+            if (d > maxNm && ++e.posRejects < 4)
+                return;
+        }
+    }
+
+    e.posRejects = 0;
+    e.ac.lat = lat;
+    e.ac.lon = lon;
     e.cprValid = true;
     e.ac.hasPos = true;
+    e.lastPosTime = nowSec;
 }
 
 void Tracker::removeStale(double nowSec, double ttlSec)

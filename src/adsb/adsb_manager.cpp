@@ -35,8 +35,9 @@ void AdsbManager::configure(double sampleRateHz, double centerHz)
 {
     sampleRate_ = sampleRateHz > 1.0 ? sampleRateHz : 2.4e6;
     centerHz_ = centerHz > 1.0 ? centerHz : 1090.0e6;
-    // Any real source rate is usable now that we resample to 2.4 MS/s.
-    rateOk_ = sampleRate_ > 1.0;
+    // ADS-B is ~2 MHz wide: a source below ~1.8 MS/s aliases the signal and
+    // only ever yields garbage frames, so refuse to decode at such rates.
+    rateOk_ = sampleRate_ >= 1.8e6;
     std::lock_guard<std::mutex> lk(mtx_);
     inBuf_.clear();
     inPhase_ = 0.0;
@@ -74,6 +75,8 @@ void AdsbManager::feed(const float* iq, int nComplex)
 {
     if (!running_.load() || nComplex <= 0)
         return;
+    if (!rateOk_)
+        return; // source rate too low for ADS-B; don't emit garbage frames
 
     std::lock_guard<std::mutex> lk(mtx_);
 
@@ -204,6 +207,7 @@ void AdsbManager::workerLoop()
                     m.lon = tr.lon;
                     m.alt = tr.alt;
                 }
+                m.heading = tr.heading;
                 m.decoded = "";
                 acTable_->update(m, now);
             }

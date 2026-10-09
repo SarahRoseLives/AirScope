@@ -37,6 +37,7 @@ struct TrackResult
     double  lat = 0.0;
     double  lon = 0.0;
     int32_t alt = 0;
+    double  heading = 0.0;
     std::string callsign;
 };
 
@@ -62,6 +63,8 @@ private:
         double cprOddTime = 0, cprEvenTime = 0;
         bool   cprOddValid = false, cprEvenValid = false;
         bool   cprValid = false;
+        double lastPosTime = 0.0;
+        int    posRejects = 0;
     };
 
     void updateCPR(Entry& e, const Decoded& msg, double nowSec);

@@ -181,7 +181,17 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
 
         if (r.mode == kRxRtl)
         {
-            if (ImGui::Combo("Sample rate (MHz)", &r.rateIdx, kRateLabels, kNumRates))
+            if (r.role == RxRole::Adsb)
+            {
+                // ADS-B needs a wide rate; a lower one aliases the signal and
+                // only yields garbage frames. Pin it.
+                r.rateIdx = 9; // 2.4 MHz
+                ImGui::BeginDisabled();
+                int fixed = 9;
+                ImGui::Combo("Sample rate (MHz)", &fixed, kRateLabels, kNumRates);
+                ImGui::EndDisabled();
+            }
+            else if (ImGui::Combo("Sample rate (MHz)", &r.rateIdx, kRateLabels, kNumRates))
             {
                 r.view.resetView = true;
                 if (running) r.src->setSampleRate(kRates[r.rateIdx]);
@@ -197,7 +207,15 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
         else if (r.mode == kRxAirspy)
         {
 #ifdef HAS_AIRSPY
-            if (ImGui::Combo("Sample rate (MHz)", &r.apRateIdx, kAirspyRateLabels, kAirspyNumRates))
+            if (r.role == RxRole::Adsb)
+            {
+                r.apRateIdx = 0; // 2.5 MHz (lowest Airspy rate, needed for ADS-B)
+                ImGui::BeginDisabled();
+                int fixed = 0;
+                ImGui::Combo("Sample rate (MHz)", &fixed, kAirspyRateLabels, kAirspyNumRates);
+                ImGui::EndDisabled();
+            }
+            else if (ImGui::Combo("Sample rate (MHz)", &r.apRateIdx, kAirspyRateLabels, kAirspyNumRates))
             {
                 r.view.resetView = true;
                 if (running) r.src->setSampleRate(kAirspyRates[r.apRateIdx]);
@@ -239,7 +257,15 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
         }
         else if (r.mode == kRxSdrplay)
         {
-            if (ImGui::Combo("Sample rate (MHz)", &r.spRateIdx, kSdrplayRateLabels, kSdrplayNumRates))
+            if (r.role == RxRole::Adsb)
+            {
+                r.spRateIdx = 1; // 3.0 MHz
+                ImGui::BeginDisabled();
+                int fixed = 1;
+                ImGui::Combo("Sample rate (MHz)", &fixed, kSdrplayRateLabels, kSdrplayNumRates);
+                ImGui::EndDisabled();
+            }
+            else if (ImGui::Combo("Sample rate (MHz)", &r.spRateIdx, kSdrplayRateLabels, kSdrplayNumRates))
             {
                 r.view.resetView = true;
                 if (running) r.src->setSampleRate(kSdrplayRates[r.spRateIdx]);
@@ -905,6 +931,62 @@ void drawDecoders(App& app)
         int toRemove = -1;
         std::vector<std::string> copyRows;
 
+        auto drawRow = [&](const Row& row)
+        {
+            auto& d = row.s;
+            std::string uid = std::to_string((uintptr_t)row.r) + "_" + std::to_string(d.channelId);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                    [&](const std::unique_ptr<Receiver>& p){ return p.get() == row.r; }) -
+                    app.rx.begin()) + 1);
+            ImGui::TableNextColumn();
+            ImVec4 c = d.locked ? Lc(app, ImVec4(0.2f, 1.0f, 0.3f, 1.0f))
+                                : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_Header, c);
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(c.x*1.3f, c.y*1.3f, c.z*1.3f, 1.0f));
+            char selid[32];
+            std::snprintf(selid, sizeof(selid), "##sel_%s", uid.c_str());
+            if (ImGui::Selectable(selid, app.selectedDecoder == d.channelId))
+            {
+                app.selectedDecoder = d.channelId;
+                app.selectedRx = (int)(std::find_if(app.rx.begin(), app.rx.end(),
+                    [&](const std::unique_ptr<Receiver>& p){ return p.get() == row.r; }) - app.rx.begin());
+                if (d.isVoice)
+                    row.r->decoders.setVoiceMonitor(d.channelId);
+            }
+            ImGui::PopStyleColor(2);
+            ImGui::SameLine();
+            ImGui::TextColored(c, "%s", d.monitored ? "MON" : (d.locked ? "LOCK" : "--"));
+            ImGui::TableNextColumn();
+            ImGui::Text("%.4f", d.freqMHz);
+            ImGui::TableNextColumn();
+            if (d.isVoice)
+                ImGui::TextUnformatted("Voice");
+            else if (d.baud == kAcarsBaud)
+                ImGui::TextUnformatted("ACARS");
+            else
+                ImGui::Text("%d", d.baud);
+            ImGui::TableNextColumn();
+            ImGui::Text("%llu", (unsigned long long)d.msgs);
+            ImGui::TableNextColumn();
+            char btn[32];
+            std::snprintf(btn, sizeof(btn), "X##%s", uid.c_str());
+            if (ImGui::SmallButton(btn))
+            {
+                toRemoveRx = row.r;
+                toRemove = d.channelId;
+            }
+            copyRows.push_back(copyFmt("%.4f\t%d\t%llu", d.freqMHz, d.baud,
+                (unsigned long long)d.msgs));
+        };
+
+        // Active voice calls are drawn first so the live call stays on top,
+        // above the ADS-B / VDL2 pseudo rows and the other decoders.
+        for (auto& row : rows)
+            if (row.s.isVoice && row.s.monitored)
+                drawRow(row);
+
         // ADS-B pseudo-decoder rows (one per ADS-B receiver).
         for (auto& rp : app.rx)
         {
@@ -979,6 +1061,8 @@ void drawDecoders(App& app)
 
         for (auto& row : rows)
         {
+            if (row.s.isVoice && row.s.monitored)
+                continue; // already drawn at the top
             auto& d = row.s;
             std::string uid = std::to_string((uintptr_t)row.r) + "_" + std::to_string(d.channelId);
             ImGui::TableNextRow();
@@ -1301,27 +1385,38 @@ void drawFlightMap(App& app)
 {
     ImGui::Begin((std::string(_L("Flight Map")) + "###Flight Map").c_str());
 
-    const AircraftEntry* pick = nullptr;
+    std::vector<AircraftEntry> acs;
     for (auto& rp : app.rx)
     {
-        for (auto& a : rp->decoders.aircraftTable().snapshot())
-            if (!a.icao.empty()) { static AircraftEntry keep; keep = a; pick = &keep; break; }
-        if (pick) break;
+        auto b = rp->decoders.aircraftTable().snapshot();
+        for (auto& a : b)
+            if (a.hasPos && a.lat >= -90.0 && a.lat <= 90.0 && a.lon >= -180.0 && a.lon <= 180.0)
+                acs.push_back(a);
     }
 
-    if (pick && !app.flightMapWv.isReady())
+    ImGui::Text("%zu aircraft with position", acs.size());
+
+    // Push tracked positions to the embedded Leaflet map (throttled).
+    static double lastPush = 0.0;
+    double now = ImGui::GetTime();
+    if (app.flightMapWv.isReady() && now - lastPush > 0.5)
     {
-        ImGui::Text("%s  %s  %06X", pick->icao.c_str(),
-                    pick->flight.empty() ? pick->reg.c_str() : pick->flight.c_str(), pick->aesId);
-        if (pick->hasPos)
-            ImGui::SameLine(); ImGui::Text("  %.4f,%.4f  %d ft", pick->lat, pick->lon, pick->alt);
+        lastPush = now;
+        std::string json = "[";
+        bool first = true;
+        for (auto& a : acs)
+        {
+            if (!first) json += ',';
+            first = false;
+            char buf[256];
+            std::snprintf(buf, sizeof(buf),
+                "{\"la\":%.5f,\"lo\":%.5f,\"al\":%d,\"hd\":%.1f,\"fl\":\"%s\",\"rg\":\"%s\",\"ic\":\"%s\"}",
+                a.lat, a.lon, a.alt, a.heading, a.flight.c_str(), a.reg.c_str(), a.icao.c_str());
+            json += buf;
+        }
+        json += ']';
+        app.flightMapWv.setAircraft(json);
     }
-    else if (!pick && !app.flightMapWv.isReady())
-    {
-        ImGui::TextDisabled("No aircraft with ICAO yet.");
-    }
-    if (!app.flightMapWv.isReady())
-        ImGui::TextDisabled("  Loading map...");
 
     ImVec2 pos  = ImGui::GetCursorScreenPos();
     ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1340,13 +1435,6 @@ void drawFlightMap(App& app)
     }
     else
         app.flightMapWv.setBounds((int)pos.x, (int)pos.y, w, h, tabActive);
-
-    static std::string lastIcao;
-    if (pick && pick->icao != lastIcao)
-    {
-        lastIcao = pick->icao;
-        app.flightMapWv.setIcao(pick->icao);
-    }
 
     ImGui::End();
 }

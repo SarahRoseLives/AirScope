@@ -31,6 +31,7 @@ struct DecodedMessage
     double lat = 0.0;
     double lon = 0.0;
     int    alt = 0;        // altitude in feet (ADS-C)
+    double heading = 0.0;  // ground track in degrees true (ADS-B)
     std::string icao;      // ICAO 24-bit hex (ADS-C airframe id), if present
     std::string flight;    // flight/callsign (ADS-C flight id), if present
 };
@@ -127,6 +128,7 @@ struct AircraftEntry
     double lat = 0.0;
     double lon = 0.0;
     int    alt = 0;
+    double heading = 0.0;  // ground track in degrees true
     double posTime = 0.0;  // epoch sec of last position
     double lastSeen = 0.0; // epoch sec of last message
     uint64_t msgs = 0;
@@ -163,6 +165,7 @@ public:
             e.alt = m.alt;
             e.posTime = nowSec;
         }
+        if (m.heading != 0.0) e.heading = m.heading;
         e.lastSeen = nowSec;
         e.freqMHz = m.freqMHz;
         ++e.msgs;

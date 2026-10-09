@@ -170,17 +170,24 @@ void BeastWriter::write(const uint8_t* bytes, int nbytes, double tsSec, double s
     int sig = (int)(std::sqrt(sigLevel > 0 ? sigLevel : 0.0) * 255.0);
     if (sig > 255) sig = 255;
 
-    uint8_t frame[1 + 1 + 6 + 1 + 14 * 2];
+    // Every byte after the type is escaped: 0x1A is the frame delimiter, so an
+    // unescaped 0x1A in the timestamp, signal or payload desyncs the reader.
+    uint8_t body[6 + 1 + 14];
+    int bn = 0;
+    for (int i = 5; i >= 0; --i)
+        body[bn++] = (uint8_t)((ts >> (i * 8)) & 0xFF);
+    body[bn++] = (uint8_t)sig;
+    for (int i = 0; i < nbytes; ++i)
+        body[bn++] = bytes[i];
+
+    uint8_t frame[2 + (6 + 1 + 14) * 2];
     int n = 0;
     frame[n++] = 0x1A;
     frame[n++] = type;
-    for (int i = 5; i >= 0; --i)
-        frame[n++] = (uint8_t)((ts >> (i * 8)) & 0xFF);
-    frame[n++] = (uint8_t)sig;
-    for (int i = 0; i < nbytes; ++i)
+    for (int i = 0; i < bn; ++i)
     {
-        frame[n++] = bytes[i];
-        if (bytes[i] == 0x1A)
+        frame[n++] = body[i];
+        if (body[i] == 0x1A)
             frame[n++] = 0x1A; // escape
     }
 
