@@ -22,6 +22,7 @@ public:
     void setSampleRate(double hz) override;
     void setGain(double db) override;      // <0 => AGC
     void setBiasTee(bool on) override;
+    void setFmNotch(bool on) override;
     void setPpm(double ppm) override;
 
     void setDcBlock(bool on) { dcBlock_.store(on); }
@@ -52,6 +53,7 @@ private:
     double gainDb_     = -1.0;   // <0 => AGC
     double ppm_        = 0.0;
     bool   biasTee_    = false;
+    bool   fmNotch_    = false;
 
     std::atomic<bool> dcBlock_{true};
     float dcOffRe_ = 0.0f, dcOffIm_ = 0.0f;

@@ -42,6 +42,12 @@ void cfgWriteAll(App& app, ImGuiTextBuffer* buf)
         buf->appendf("rx%d.spagc=%d\n", (int)i, r.spAgc ? 1 : 0);
         buf->appendf("rx%d.spgr=%d\n", (int)i, r.spGRdB);
         buf->appendf("rx%d.spbias=%d\n", (int)i, r.spBias ? 1 : 0);
+        buf->appendf("rx%d.spfmnotch=%d\n", (int)i, r.spFmNotch ? 1 : 0);
+        buf->appendf("rx%d.hrfrate=%d\n", (int)i, r.hrfRateIdx);
+        buf->appendf("rx%d.hrflna=%d\n", (int)i, r.hrfLna);
+        buf->appendf("rx%d.hrfvga=%d\n", (int)i, r.hrfVga);
+        buf->appendf("rx%d.hrfamp=%d\n", (int)i, r.hrfAmp ? 1 : 0);
+        buf->appendf("rx%d.hrfbias=%d\n", (int)i, r.hrfBias ? 1 : 0);
         buf->appendf("rx%d.wavpath=%s\n", (int)i, r.wavPath);
         buf->appendf("rx%d.wavloop=%d\n", (int)i, r.wavLoop ? 1 : 0);
         buf->appendf("rx%d.showbp=%d\n", (int)i, r.showBandPlan ? 1 : 0);
@@ -138,6 +144,12 @@ void cfgReadLine(App& app, const char* line)
         else if (!std::strcmp(field, "spagc")) r.spAgc = std::atoi(val) != 0;
         else if (!std::strcmp(field, "spgr")) r.spGRdB = std::atoi(val);
         else if (!std::strcmp(field, "spbias")) r.spBias = std::atoi(val) != 0;
+        else if (!std::strcmp(field, "spfmnotch")) r.spFmNotch = std::atoi(val) != 0;
+        else if (!std::strcmp(field, "hrfrate")) r.hrfRateIdx = std::atoi(val);
+        else if (!std::strcmp(field, "hrflna")) r.hrfLna = std::atoi(val);
+        else if (!std::strcmp(field, "hrfvga")) r.hrfVga = std::atoi(val);
+        else if (!std::strcmp(field, "hrfamp")) r.hrfAmp = std::atoi(val) != 0;
+        else if (!std::strcmp(field, "hrfbias")) r.hrfBias = std::atoi(val) != 0;
         else if (!std::strcmp(field, "wavpath"))
         {
             std::strncpy(r.wavPath, val, sizeof(r.wavPath) - 1);

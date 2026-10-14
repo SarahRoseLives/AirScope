@@ -71,6 +71,15 @@ pacman -S --needed mingw-w64-x86_64-libairspy
 Airspy headers are vendored in `third_party/airspy/`. The build automatically
 enables Airspy (`HAS_AIRSPY=1`) when libairspy is found by CMake.
 
+### Optional: HackRF support
+
+```bash
+pacman -S --needed mingw-w64-x86_64-hackrf
+```
+
+Enables HackRF One (`HAS_HACKRF=1`) when libhackrf is found by CMake. On
+Debian/Ubuntu the package is `libhackrf-dev`; on Fedora `hackrf-devel`.
+
 ## 3. Configure and build
 
 From the **MINGW64** shell, in the project root:
@@ -91,7 +100,8 @@ build/libgcc_s_seh-1.dll, libwinpthread-1.dll, libstdc++-6.dll,
       libxml2-16.dll, libiconv-2.dll, liblzma-5.dll,
       libjansson-4.dll, WebView2Loader.dll
 ```
-(plus `build/libairspy.dll` when Airspy support is enabled)
+(plus `build/libairspy.dll` and/or `build/libhackrf.dll` when those
+backends are enabled)
 
 The DLLs are copied next to the `.exe` automatically (POST_BUILD step), so it
 runs standalone from a double-click or from PyCharm without MSYS2 on `PATH`.

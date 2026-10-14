@@ -17,6 +17,9 @@
 #ifdef HAS_AIRSPY
 #include "sdr/airspy_source.h"
 #endif
+#ifdef HAS_HACKRF
+#include "sdr/hackrf_source.h"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -119,7 +122,7 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
 
     // Source type.
     struct SrcOpt { const char* label; int mode; };
-    SrcOpt opts[6];
+    SrcOpt opts[7];
     int nm = 0;
     opts[nm++] = {"RTL-SDR", kRxRtl};
     opts[nm++] = {"WAV file", kRxWav};
@@ -129,6 +132,9 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
 #ifdef HAS_SDRPLAY
     opts[nm++] = {"SDRplay", kRxSdrplay};
 #endif
+#ifdef HAS_HACKRF
+    opts[nm++] = {"HackRF", kRxHackRf};
+#endif
     // Optional roles (ACARS/ADS-B) can be left unused.
     if (r.role != RxRole::Voice)
         opts[nm++] = {"Disabled (unused)", kRxDisabled};
@@ -136,7 +142,7 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
     int modeSel = 0;
     for (int i = 0; i < nm; ++i)
         if (opts[i].mode == r.mode) modeSel = i;
-    const char* labels[6];
+    const char* labels[7];
     for (int i = 0; i < nm; ++i) labels[i] = opts[i].label;
 
     ImGui::BeginDisabled(running);
@@ -278,6 +284,29 @@ static void drawReceiverControls(App& app, Receiver& r, int idx)
             ImGui::EndDisabled();
             if (ImGui::Checkbox("Bias-T", &r.spBias))
                 if (running) r.src->setBiasTee(r.spBias);
+            if (ImGui::Checkbox("FM broadcast notch (RSP1A)", &r.spFmNotch))
+                if (running) r.src->setFmNotch(r.spFmNotch);
+        }
+        else if (r.mode == kRxHackRf)
+        {
+#ifdef HAS_HACKRF
+            if (ImGui::Combo("Sample rate (MHz)", &r.hrfRateIdx, kHackRfRateLabels, kHackRfNumRates))
+            {
+                r.view.resetView = true;
+                if (running) r.src->setSampleRate(kHackRfRates[r.hrfRateIdx]);
+            }
+            auto* h = dynamic_cast<HackRfSource*>(r.src.get());
+            if (ImGui::SliderInt("IF gain (dB)", &r.hrfLna, 0, 40) && h)
+                h->setLnaGain(r.hrfLna);
+            if (ImGui::SliderInt("Baseband gain (dB)", &r.hrfVga, 0, 62) && h)
+                h->setVgaGain(r.hrfVga);
+            if (ImGui::Checkbox("RF amp (+11 dB)", &r.hrfAmp) && h)
+                h->setAmp(r.hrfAmp);
+            if (ImGui::Checkbox("Bias-T (antenna power)", &r.hrfBias))
+                if (running) r.src->setBiasTee(r.hrfBias);
+#else
+            ImGui::TextDisabled("HackRF support not built.");
+#endif
         }
 
         if (drawPpmAdjust("PPM", &r.ppm))

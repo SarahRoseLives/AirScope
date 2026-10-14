@@ -8,6 +8,9 @@
 #ifdef HAS_SDRPLAY
 #include "sdr/sdrplay_source.h"
 #endif
+#ifdef HAS_HACKRF
+#include "sdr/hackrf_source.h"
+#endif
 
 #include <utility>
 
@@ -60,6 +63,12 @@ std::unique_ptr<SdrSource> makeSdrSource(int mode)
 #else
         return nullptr;
 #endif
+    case kRxHackRf:
+#ifdef HAS_HACKRF
+        return std::make_unique<HackRfSource>();
+#else
+        return nullptr;
+#endif
     case kRxDisabled: return nullptr;
     default:        return nullptr;
     }
@@ -73,6 +82,7 @@ const char* rxModeName(int mode)
     case kRxWav:     return "WAV file";
     case kRxAirspy:  return "Airspy";
     case kRxSdrplay: return "SDRplay";
+    case kRxHackRf:  return "HackRF";
     case kRxDisabled: return "Disabled";
     default:         return "?";
     }

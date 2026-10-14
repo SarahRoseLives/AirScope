@@ -30,6 +30,7 @@ constexpr int kRxWav      = 1;
 constexpr int kRxAirspy   = 2;
 constexpr int kRxSdrplay  = 3;
 constexpr int kRxDisabled = 4; // role intentionally unused
+constexpr int kRxHackRf   = 5;
 
 // Fixed receiver roles. The user picks which SDR fills each role.
 enum class RxRole { Voice, Acars, Adsb };
@@ -108,6 +109,14 @@ struct Receiver
     bool spAgc = true;
     int  spGRdB = 40;
     bool spBias = false;
+    bool spFmNotch = false;  // RSP1A built-in FM broadcast notch filter
+
+    // HackRF
+    int  hrfRateIdx = 2;   // index into kHackRfRates (default 8 MS/s)
+    int  hrfLna = 16;      // IF gain, 0..40 in 8 dB steps
+    int  hrfVga = 16;      // baseband gain, 0..62 in 2 dB steps
+    bool hrfAmp = false;   // front-end RF amplifier
+    bool hrfBias = false;  // antenna port power (bias tee)
 
     // WAV
     char wavPath[512] = "";
@@ -149,3 +158,8 @@ struct Receiver
 constexpr double kSdrplayRates[] = {2.0e6, 3.0e6, 4.0e6, 5.0e6, 6.0e6, 7.0e6, 8.0e6};
 constexpr const char* kSdrplayRateLabels[] = {"2.0", "3.0", "4.0", "5.0", "6.0", "7.0", "8.0"};
 constexpr int kSdrplayNumRates = (int)(sizeof(kSdrplayRates) / sizeof(kSdrplayRates[0]));
+
+// HackRF sample rates (MHz) and labels (2-20 MS/s).
+constexpr double kHackRfRates[] = {2.0e6, 4.0e6, 8.0e6, 10.0e6, 20.0e6};
+constexpr const char* kHackRfRateLabels[] = {"2.0", "4.0", "8.0", "10.0", "20.0"};
+constexpr int kHackRfNumRates = (int)(sizeof(kHackRfRates) / sizeof(kHackRfRates[0]));

@@ -30,6 +30,8 @@ public:
     virtual void setGain(double db) = 0;      // <0 => auto/AGC
     virtual void setBiasTee(bool on) = 0;
     virtual void setPpm(double ppm) = 0;
+    // SDRplay RSP1A built-in FM broadcast notch filter. No-op elsewhere.
+    virtual void setFmNotch(bool on) { (void)on; }
     virtual void setDcBlock(bool on) { (void)on; }
 
     virtual double centerFreq() const = 0;

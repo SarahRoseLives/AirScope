@@ -6,6 +6,9 @@
 #ifdef HAS_AIRSPY
 #include "sdr/airspy_source.h"
 #endif
+#ifdef HAS_HACKRF
+#include "sdr/hackrf_source.h"
+#endif
 
 #include <cmath>
 #include <string>
@@ -133,6 +136,24 @@ static bool startReceiver(App& app, Receiver& r, bool feedIqRecorder, std::strin
         r.src->setCenterFreq(r.centerMHz * 1e6);
         r.src->setGain(r.spAgc ? -1.0 : (double)r.spGRdB);
         r.src->setBiasTee(r.spBias);
+        r.src->setFmNotch(r.spFmNotch);
+        r.src->setPpm((double)r.ppm);
+        r.src->setDcBlock(app.dcBlock);
+        ok = r.src->start(r.deviceIndex, cb, err);
+    }
+    else if (r.mode == kRxHackRf)
+    {
+        r.src->setSampleRate(kHackRfRates[r.hrfRateIdx]);
+        r.src->setCenterFreq(r.centerMHz * 1e6);
+#ifdef HAS_HACKRF
+        if (auto* h = dynamic_cast<HackRfSource*>(r.src.get()))
+        {
+            h->setLnaGain(r.hrfLna);
+            h->setVgaGain(r.hrfVga);
+            h->setAmp(r.hrfAmp);
+        }
+#endif
+        r.src->setBiasTee(r.hrfBias);
         r.src->setPpm((double)r.ppm);
         r.src->setDcBlock(app.dcBlock);
         ok = r.src->start(r.deviceIndex, cb, err);

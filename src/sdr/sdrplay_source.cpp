@@ -177,6 +177,8 @@ bool SdrplaySource::start(int deviceIndex, SdrSampleCb cb, std::string& err)
         params_->rxChannelA->ctrlParams.dcOffset.DCenable = 1;
         params_->rxChannelA->ctrlParams.dcOffset.IQenable = 1;
         params_->rxChannelA->rsp1aTunerParams.biasTEnable = biasTee_ ? 1 : 0;
+        if (hwVer_ == SDRPLAY_RSP1A_ID)
+            params_->devParams->rsp1aParams.rfNotchEnable = fmNotch_ ? 1 : 0;
         applyGain();
 
         sdrplay_api_CallbackFnsT fns{};
@@ -346,4 +348,16 @@ void SdrplaySource::setBiasTee(bool on)
     std::lock_guard<std::mutex> lk(g_apiMtx);
     sdrplay_api_Update(dev_->dev, sdrplay_api_Tuner_A,
                        sdrplay_api_Update_Rsp1a_BiasTControl, sdrplay_api_Update_Ext1_None);
+}
+
+void SdrplaySource::setFmNotch(bool on)
+{
+    fmNotch_ = on;
+    // The FM broadcast notch is an RSP1A feature.
+    if (!running_.load() || !params_ || hwVer_ != SDRPLAY_RSP1A_ID)
+        return;
+    params_->devParams->rsp1aParams.rfNotchEnable = on ? 1 : 0;
+    std::lock_guard<std::mutex> lk(g_apiMtx);
+    sdrplay_api_Update(dev_->dev, sdrplay_api_Tuner_A,
+                       sdrplay_api_Update_Rsp1a_RfNotchControl, sdrplay_api_Update_Ext1_None);
 }
